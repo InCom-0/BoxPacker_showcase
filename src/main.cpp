@@ -5,6 +5,6 @@
 int main(int argc, char *argv[]) {
     using namespace std::literals;
 
-    std::print("{}", "Sample output"sv) ;
+    std::println("{}", "Sample output"sv) ;
     return 0;
 }
