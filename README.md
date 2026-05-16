@@ -29,6 +29,8 @@ The Emscripten target is configured to emit a GitHub Pages friendly entry point:
 - `build/Emscripten_Release/stage/bin/index.js`
 - `build/Emscripten_Release/stage/bin/index.wasm`
 
+The generated `index.html` now uses `web/shell.html` as a custom Emscripten shell, so stdout is rendered directly into the page instead of the stock Emscripten canvas-and-textarea template.
+
 For manual publishing to the `gh-pages` branch, copy the contents of `build/Emscripten_Release/stage/bin/` into the root of that branch.
 
 Minimum required files for the current sample:

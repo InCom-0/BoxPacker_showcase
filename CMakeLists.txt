@@ -92,11 +92,16 @@ target_sources(boxpacker_showcase
 target_compile_features(boxpacker_showcase PRIVATE cxx_std_23)
 
 if(EMSCRIPTEN)
+    set(boxpacker_showcase_EMSCRIPTEN_SHELL_FILE
+        "${CMAKE_SOURCE_DIR}/web/shell.html")
+
     set_target_properties(boxpacker_showcase PROPERTIES
         OUTPUT_NAME "index"
         SUFFIX ".html")
 
     target_link_options(boxpacker_showcase PRIVATE
+        "SHELL:-sEXPORTED_RUNTIME_METHODS=[]"
+        "SHELL:--shell-file ${boxpacker_showcase_EMSCRIPTEN_SHELL_FILE}"
         "-sALLOW_MEMORY_GROWTH=1"
         "$<$<CONFIG:Debug>:-sASSERTIONS=2>")
 endif()
