@@ -50,8 +50,7 @@
                 "_common",
                 "_MSVC",
                 "_debug"
-            ],
-            "binaryDir": "${sourceDir}/build/MSVC-dbg"
+            ]
         },
         {
             "name": "Win_MSVC_Release",
@@ -60,8 +59,7 @@
                 "_common",
                 "_MSVC",
                 "_release"
-            ],
-            "binaryDir": "${sourceDir}/build/MSVC-rel"
+            ]
         },
         {
             "name": "Win_MSVC_Release_TRACY",
@@ -80,8 +78,7 @@
                 "_common",
                 "_windows_clang_cl",
                 "_debug"
-            ],
-            "binaryDir": "${sourceDir}/build/clang_cl-dbg"
+            ]
         },
         {
             "name": "Win_clang-cl_Release",
@@ -90,8 +87,7 @@
                 "_common",
                 "_windows_clang_cl",
                 "_release"
-            ],
-            "binaryDir": "${sourceDir}/build/clang_cl-rel"
+            ]
         },
         {
             "name": "Win_clang_Debug",
@@ -100,8 +96,7 @@
                 "_common",
                 "_windows_clang",
                 "_debug"
-            ],
-            "binaryDir": "${sourceDir}/build/clang_win-dbg"
+            ]
         },
         {
             "name": "Win_clang_Release",
@@ -110,8 +105,7 @@
                 "_common",
                 "_windows_clang",
                 "_release"
-            ],
-            "binaryDir": "${sourceDir}/build/clang_win-rel"
+            ]
         },
         {
             "name": "Emscripten_Debug",
@@ -120,8 +114,7 @@
                 "_common",
                 "_emscripten",
                 "_debug"
-            ],
-            "binaryDir": "${sourceDir}/build/emscripten-dbg"
+            ]
         },
         {
             "name": "Emscripten_Release",
@@ -130,8 +123,7 @@
                 "_common",
                 "_emscripten",
                 "_release"
-            ],
-            "binaryDir": "${sourceDir}/build/emscripten-rel"
+            ]
         },
         {
             "name": "gcc_Debug",
@@ -140,8 +132,7 @@
                 "_common",
                 "_gcc",
                 "_debug"
-            ],
-            "binaryDir": "${sourceDir}/build/gcc-dbg"
+            ]
         },
         {
             "name": "gcc_Release",
@@ -150,8 +141,7 @@
                 "_common",
                 "_gcc",
                 "_release"
-            ],
-            "binaryDir": "${sourceDir}/build/gcc-rel"
+            ]
         },
         {
             "name": "gcc_None",
@@ -160,8 +150,7 @@
                 "_common",
                 "_gcc",
                 "_none"
-            ],
-            "binaryDir": "${sourceDir}/build/gcc-none"
+            ]
         },
         {
             "name": "clang_Debug",
@@ -170,8 +159,7 @@
                 "_common",
                 "_clang",
                 "_debug"
-            ],
-            "binaryDir": "${sourceDir}/build/clang-dbg"
+            ]
         },
         {
             "name": "clang_Release",
@@ -180,8 +168,7 @@
                 "_common",
                 "_clang",
                 "_release"
-            ],
-            "binaryDir": "${sourceDir}/build/clang-rel"
+            ]
         },
         {
             "name": "_common",

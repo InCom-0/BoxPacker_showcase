@@ -91,6 +91,16 @@ target_sources(boxpacker_showcase
 
 target_compile_features(boxpacker_showcase PRIVATE cxx_std_23)
 
+if(EMSCRIPTEN)
+    set_target_properties(boxpacker_showcase PROPERTIES
+        OUTPUT_NAME "index"
+        SUFFIX ".html")
+
+    target_link_options(boxpacker_showcase PRIVATE
+        "-sALLOW_MEMORY_GROWTH=1"
+        "$<$<CONFIG:Debug>:-sASSERTIONS=2>")
+endif()
+
 
 ##########################################################################
 ### Settings the right options for linking for Windows and Apple  ###
