@@ -44,25 +44,9 @@
 int main(int, char **) {
     std::string df{BOXPACKER_SAMPLE_INPUT};
 
-    auto any_ctre = ctre::search<R"(.+)">;
-    auto d_ctre   = ctre::search<R"(\d+)">;
-    auto input    = incom::aoc::parseInputUsingCTRE::processFile(df, any_ctre).front();
-
-    struct Shape_LOC {
-        std::array<std::array<bool, 3>, 3> matrices;
-    };
-    struct Tree {
-        int                 yDim;
-        int                 xDim;
-        std::vector<size_t> reqdShapes;
-    };
-
-    // std::vector<Shape_LOC> shapes_ORIG;
-    // std::vector<Tree>      trees_ORIG;
-
     auto const [shapes_ORIG, trees_ORIG] = incom::box_packer::get_integratedSampleData(df);
 
-    auto shapes       = shapes_ORIG;
+    auto shps         = shapes_ORIG;
     auto trees        = trees_ORIG;
     namespace incpack = incom::standard::solvers::packing;
 
@@ -166,7 +150,6 @@ int main(int, char **) {
     boxpacker_private::BackgroundWorkSketch background_work;
     std::vector<std::string>                recent_events;
 
-    incom::box_packer::ShapesStorage shps{};
 
     // Main loop
     bool done = false;
@@ -215,7 +198,7 @@ int main(int, char **) {
             ImGui::TextWrapped("Sketch: background work runs on worker threads, progress is polled by the main thread "
                                "every frame, and completion messages are drained into UI state.");
 
-            if (ImGui::Button("Reset shapes")) { shapes = shapes_ORIG; }
+            if (ImGui::Button("Reset shapes")) { shps = shapes_ORIG; }
 
             if (ImGui::Button("Queue background job")) { background_work.start_demo_job(); }
             ImGui::SameLine();
@@ -245,16 +228,16 @@ int main(int, char **) {
 
                 size_t curShpIDX = 0uz;
                 for (int r = 0; r < 3; ++r) {
-                    for (int c = 0; c < 3; ++c) {
+                    for (int c = 0; c < 2; ++c) {
                         static int drag_i = 0;
                         ImGui::PushItemWidth(81.0);
-                        if (c != 0) { ImGui::SameLine(); }
                         ImGui::PushID(r * 3 + c);
                         ImGui::DragInt("", &drag_i, 0.1f, 0, 100, "%d");
+                        if (c < 1) { ImGui::SameLine(); }
                         ImGui::PopID();
                         ImGui::PopItemWidth();
                     }
-                    for (int c = 0; c < 3; ++c) {
+                    for (int c = 0; c < 2; ++c) {
                         ImGui::PushID(r * 3 + c);
 
 
@@ -266,11 +249,11 @@ int main(int, char **) {
                                           ImVec2(0.0f, 0.0f));
 
 
-                        for (int c = 0; c < 3; ++c) {
+                        for (int c = 0; c < 2; ++c) {
                             ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 26.0f);
                         };
 
-
+                        auto spn = shps.m_shapes.at(curShpIDX).get_viewInto<3uz, 3uz>();
                         for (int tRow = 0; tRow < 3; tRow++) {
                             ImGui::TableNextRow(ImGuiTableRowFlags_None, 26);
                             for (int tCol = 0; tCol < 3; tCol++) {
@@ -279,6 +262,9 @@ int main(int, char **) {
                                 bool tf = false;
                                 ImGui::TableSetColumnIndex(tCol);
                                 ImGui::Selectable("", tf);
+
+                                ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg,
+                                                       ImGui::GetColorU32(spn[tRow, tCol] != 0 ? ImVec4(0.0f, 1.0f, 0.0f, 0.65f) : ImVec4(0.0f, 0.0f, 0.0f, 0.65f)));
                                 if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
                                     // Set payload to carry the index of our item (could be anything)
                                     ImGui::SetDragDropPayload("DND_DEMO_CELL", &curShpIDX, sizeof(size_t));
@@ -305,7 +291,7 @@ int main(int, char **) {
 
 
                         ImGui::PopID();
-                        if (c < 2) { ImGui::SameLine(); }
+                        if (c < 1) { ImGui::SameLine(); }
 
                         ++curShpIDX;
                     }
