@@ -47,23 +47,23 @@ include(CheckIPOSupported)
 check_ipo_supported(RESULT boxpacker_showcase_LTO OUTPUT boxpacker_showcase_LTO_OUTPUT)
 
 # Enable LTO if supported and only when NOT in debug mode
-if(boxpacker_showcase_LTO)
-    message(STATUS "LTO is supported")
-    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-        set(CMAKE_INTERPROCEDURAL_OPTIMIZATION FALSE)
-        message(STATUS "LTO is disabled because of Debug build")
-    elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-        set(CMAKE_INTERPROCEDURAL_OPTIMIZATION FALSE)
-        message(STATUS "LTO is disabled on MacOS")
-    else()
-        set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
-        message(STATUS "LTO is enabled")
-        # set_property(TARGET foo PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
-    endif()
+# if(boxpacker_showcase_LTO)
+#     message(STATUS "LTO is supported")
+#     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+#         set(CMAKE_INTERPROCEDURAL_OPTIMIZATION FALSE)
+#         message(STATUS "LTO is disabled because of Debug build")
+#     elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+#         set(CMAKE_INTERPROCEDURAL_OPTIMIZATION FALSE)
+#         message(STATUS "LTO is disabled on MacOS")
+#     else()
+#         set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
+#         message(STATUS "LTO is enabled")
+#         # set_property(TARGET foo PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+#     endif()
 
-else()
-    message(WARNING "LTO is NOT supported: ${boxpacker_showcase_LTO_OUTPUT}")
-endif()
+# else()
+#     message(WARNING "LTO is NOT supported: ${boxpacker_showcase_LTO_OUTPUT}")
+# endif()
 
 
 ######################################################################
@@ -73,27 +73,37 @@ add_executable(boxpacker_showcase)
 target_sources(boxpacker_showcase PRIVATE src/main.cpp)
 target_sources(boxpacker_showcase
     PRIVATE
+    FILE_SET pub_headers
+    TYPE HEADERS
+    BASE_DIRS
+    include
+)
+target_sources(boxpacker_showcase
+    PRIVATE
     FILE_SET priv_headers
     TYPE HEADERS
     BASE_DIRS
-    include)
+    src/private_inc/)
+
+
+
 
 set(boxpacker_showcase_GENERATED_CONFIG_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
-# include(cmake/config/configScript.cmake)
 
 target_sources(boxpacker_showcase
     PRIVATE
     FILE_SET priv_auto_config
     TYPE HEADERS
     BASE_DIRS
-    "${boxpacker_showcase_GENERATED_CONFIG_DIR}")
+    "${boxpacker_showcase_GENERATED_CONFIG_DIR}"
+)
 
 
 target_compile_features(boxpacker_showcase PRIVATE cxx_std_23)
 
 if(EMSCRIPTEN)
     set(boxpacker_showcase_EMSCRIPTEN_SHELL_FILE
-        "${CMAKE_SOURCE_DIR}/web/shell.html")
+        "${CMAKE_SOURCE_DIR}/web/shell_minimal.html")
 
     set_target_properties(boxpacker_showcase PROPERTIES
         OUTPUT_NAME "index"
@@ -110,29 +120,6 @@ endif()
 ##########################################################################
 ### Settings the right options for linking for Windows and Apple  ###
 ##########################################################################
-if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    if(CMAKE_SYSTEM_NAME MATCHES "Windows")
-        set(BUILD_SHARED_LIBS OFF)
-        if(USING_LIBSTDCXX)
-            target_link_options(boxpacker_showcase PUBLIC -static)
-        elseif(USING_LIBCXX)
-            target_link_options(boxpacker_showcase PUBLIC -stdlib=libc++ -static)
-        elseif(USING_MSVC_STL)
-        endif()
-
-    elseif(APPLE)
-        if(USING_LIBSTDCXX)
-            target_link_options(boxpacker_showcase PUBLIC -static)
-        elseif(USING_LIBCXX)
-            target_link_options(boxpacker_showcase PUBLIC -stdlib=libc++)
-        elseif(USING_MSVC_STL)
-            message(FATAL_ERROR "CMake reports we are using MSVC STL on APPLE platform. That is impossible.")
-        endif()
-    else()
-    endif()
-
-elseif(CMAKE_BUILD_TYPE STREQUAL "Debug")
-endif()
 
 
 ##########################################################################
@@ -140,7 +127,31 @@ endif()
 ##########################################################################
 include(CMake_dependencies.cmake) ### Loads and declares the required external libraries using CPM or CMake's FetchContent.
 
-target_link_libraries(boxpacker_showcase PRIVATE incstd::incstd)
+if(EMSCRIPTEN AND TARGET imgui-opengl3)
+    foreach(_prop IN ITEMS INTERFACE_LINK_LIBRARIES LINK_LIBRARIES)
+        get_target_property(_imgui_gl_libs imgui-opengl3 ${_prop})
+        if(_imgui_gl_libs)
+            list(FILTER _imgui_gl_libs EXCLUDE REGEX "^(OpenGL::GL|GL|-lGL)$")
+            set_target_properties(imgui-opengl3 PROPERTIES ${_prop} "${_imgui_gl_libs}")
+        endif()
+    endforeach()
+endif()
+
+target_link_libraries(boxpacker_showcase PRIVATE incstd::incstd ctre::ctre)
+target_link_libraries(boxpacker_showcase PRIVATE imgui imgui-sdl2 imgui-opengl3)
+target_link_libraries(boxpacker_showcase PRIVATE STDEXEC::stdexec readerwriterqueue)
+
+if(EMSCRIPTEN)
+    target_compile_options(boxpacker_showcase PUBLIC -sUSE_SDL=2)
+    target_link_options(boxpacker_showcase PUBLIC -sUSE_SDL=2 -sWASM=1 -sALLOW_MEMORY_GROWTH=1 -sDISABLE_EXCEPTION_CATCHING=1 -sNO_EXIT_RUNTIME=0)
+    target_link_options(boxpacker_showcase PUBLIC -sASSERTIONS=1 -sMAIN_MODULE=1)
+    
+    ###########################################
+    #  Need to compile all the dependent libraries with '-pthread -matomics -mbulk-memory' for it to work ... currently it does not
+    ######################################
+    # target_compile_options(boxpacker_showcase PUBLIC -pthread -sPROXY_TO_PTHREAD)
+    # target_link_options(boxpacker_showcase PUBLIC -pthread -sPROXY_TO_PTHREAD)
+endif()
 
 
 if(USING_LIBSTDCXX)
