@@ -34,7 +34,9 @@
 #endif
 
 #include <boxpacker_private/background_work_sketch.h>
+#include <boxpacker_private/bp_handling.hpp>
 #include <boxpacker_private/incom_commons.h>
+
 
 #define BOXPACKER_SAMPLE_INPUT "../../../data/BoxPacker_sample_input.txt"
 
@@ -42,9 +44,9 @@
 int main(int, char **) {
     std::string df{BOXPACKER_SAMPLE_INPUT};
 
-    auto              any_ctre = ctre::search<R"(.+)">;
-    auto              d_ctre   = ctre::search<R"(\d+)">;
-    auto              input    = incom::aoc::parseInputUsingCTRE::processFile(df, any_ctre).front();
+    auto any_ctre = ctre::search<R"(.+)">;
+    auto d_ctre   = ctre::search<R"(\d+)">;
+    auto input    = incom::aoc::parseInputUsingCTRE::processFile(df, any_ctre).front();
 
     struct Shape_LOC {
         std::array<std::array<bool, 3>, 3> matrices;
@@ -55,29 +57,13 @@ int main(int, char **) {
         std::vector<size_t> reqdShapes;
     };
 
-    std::vector<Shape_LOC> shapes;
-    std::vector<Tree>      trees;
+    // std::vector<Shape_LOC> shapes_ORIG;
+    // std::vector<Tree>      trees_ORIG;
 
-    for (size_t lineID = 0; lineID < input.size(); ++lineID) {
-        if (input.at(lineID).size() == 2) {
-            shapes.emplace_back();
-            for (size_t shape_line = 0; shape_line < 3; ++shape_line) {
-                lineID++;
-                for (int chrID = 0; auto oneChr : input.at(lineID)) {
-                    shapes.back().matrices.at(shape_line).at(chrID++) = (oneChr == '#' ? true : false);
-                }
-            }
-        }
-        if (input.at(lineID).size() > 5) {
-            auto prsRes = incom::aoc::parseInputUsingCTRE::processOneLine(input.at(lineID), d_ctre, d_ctre, d_ctre,
-                                                                          d_ctre, d_ctre, d_ctre, d_ctre, d_ctre);
-            trees.push_back(
-                Tree{.yDim = std::stoi(prsRes.at(0)),
-                     .xDim = std::stoi(prsRes.at(1)),
-                     .reqdShapes{std::stoul(prsRes.at(2)), std::stoul(prsRes.at(3)), std::stoul(prsRes.at(4)),
-                                 std::stoul(prsRes.at(5)), std::stoul(prsRes.at(6)), std::stoul(prsRes.at(7))}});
-        }
-    }
+    auto const [shapes_ORIG, trees_ORIG] = incom::box_packer::get_integratedSampleData(df);
+
+    auto shapes       = shapes_ORIG;
+    auto trees        = trees_ORIG;
     namespace incpack = incom::standard::solvers::packing;
 
 
@@ -173,34 +159,14 @@ int main(int, char **) {
     ImGui_ImplSDL2_InitForOpenGL(window, gl_context);
     ImGui_ImplOpenGL3_Init(glsl_version);
 
-    // Load Fonts
-    // - If fonts are not explicitly loaded, Dear ImGui will select an embedded font: either AddFontDefaultVector() or
-    // AddFontDefaultBitmap().
-    //   This selection is based on (style.FontSizeBase * style.FontScaleMain * style.FontScaleDpi) reaching a small
-    //   threshold.
-    // - You can load multiple fonts and use ImGui::PushFont()/PopFont() to select them.
-    // - If a file cannot be loaded, AddFont functions will return a nullptr. Please handle those errors in your code
-    // (e.g. use an assertion, display an error and quit).
-    // - Read 'docs/FONTS.md' for more instructions and details.
-    // - Use '#define IMGUI_ENABLE_FREETYPE' in your imconfig file to use FreeType for higher quality font rendering.
-    // - Remember that in C/C++ if you want to include a backslash \ in a string literal you need to write a double
-    // backslash \\ !
-    // - Our Emscripten build process allows embedding fonts to be accessible at runtime from the "fonts/" folder. See
-    // Makefile.emscripten for details.
-    // style.FontSizeBase = 20.0f;
     io.Fonts->AddFontDefaultVector();
-    // io.Fonts->AddFontDefaultBitmap();
-    // io.Fonts->AddFontFromFileTTF("c:\\Windows\\Fonts\\segoeui.ttf");
-    // io.Fonts->AddFontFromFileTTF("../../misc/fonts/DroidSans.ttf");
-    // io.Fonts->AddFontFromFileTTF("../../misc/fonts/Roboto-Medium.ttf");
-    // io.Fonts->AddFontFromFileTTF("../../misc/fonts/Cousine-Regular.ttf");
-    // ImFont* font = io.Fonts->AddFontFromFileTTF("c:\\Windows\\Fonts\\ArialUni.ttf");
-    // IM_ASSERT(font != nullptr);
 
     // Our state
     ImVec4                                  clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
     boxpacker_private::BackgroundWorkSketch background_work;
     std::vector<std::string>                recent_events;
+
+    incom::box_packer::ShapesStorage shps{};
 
     // Main loop
     bool done = false;
@@ -249,9 +215,12 @@ int main(int, char **) {
             ImGui::TextWrapped("Sketch: background work runs on worker threads, progress is polled by the main thread "
                                "every frame, and completion messages are drained into UI state.");
 
+            if (ImGui::Button("Reset shapes")) { shapes = shapes_ORIG; }
+
             if (ImGui::Button("Queue background job")) { background_work.start_demo_job(); }
             ImGui::SameLine();
             if (ImGui::Button("Cancel all jobs")) { background_work.cancel_all(); }
+            ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical, 4);
 
             ImGui::SeparatorText("Background Jobs");
             const auto job_snapshots = background_work.snapshot_jobs();
@@ -260,12 +229,90 @@ int main(int, char **) {
                 for (const auto &job : job_snapshots) {
                     ImGui::PushID(static_cast<int>(job.id));
                     ImGui::Text("Job #%llu", static_cast<unsigned long long>(job.id));
-                    ImGui::ProgressBar(job.progress, ImVec2(-1.0f, 0.0f), job.status.c_str());
+                    ImGui::ProgressBar(job.progress, ImVec2(0.f, 0.f));
+                    ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+                    ImGui::Text("%s", job.status.c_str());
                     if (job.cancelled) { ImGui::TextDisabled("Cancelled before completion."); }
                     else if (job.done) { ImGui::TextDisabled("Finished and ready for result handoff."); }
                     else { ImGui::TextDisabled("Running on a worker thread."); }
                     ImGui::PopID();
                 }
+            }
+
+            {
+                ImGui::BeginChild("ChildL", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 15 * 26.0f + 20.f),
+                                  ImGuiChildFlags_None, 0);
+
+                size_t curShpIDX = 0uz;
+                for (int r = 0; r < 3; ++r) {
+                    for (int c = 0; c < 3; ++c) {
+                        static int drag_i = 0;
+                        ImGui::PushItemWidth(81.0);
+                        if (c != 0) { ImGui::SameLine(); }
+                        ImGui::PushID(r * 3 + c);
+                        ImGui::DragInt("", &drag_i, 0.1f, 0, 100, "%d");
+                        ImGui::PopID();
+                        ImGui::PopItemWidth();
+                    }
+                    for (int c = 0; c < 3; ++c) {
+                        ImGui::PushID(r * 3 + c);
+
+
+                        ImGui::BeginTable("MyTable", 3,
+                                          ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV |
+                                              ImGuiTableFlags_BordersH | ImGuiTableFlags_SizingFixedSame |
+                                              ImGuiTableFlags_NoHostExtendX | ImGuiTableFlags_NoPadOuterX |
+                                              ImGuiTableFlags_NoPadInnerX,
+                                          ImVec2(0.0f, 0.0f));
+
+
+                        for (int c = 0; c < 3; ++c) {
+                            ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 26.0f);
+                        };
+
+
+                        for (int tRow = 0; tRow < 3; tRow++) {
+                            ImGui::TableNextRow(ImGuiTableRowFlags_None, 26);
+                            for (int tCol = 0; tCol < 3; tCol++) {
+
+                                ImGui::PushID(tRow * 3 + tCol);
+                                bool tf = false;
+                                ImGui::TableSetColumnIndex(tCol);
+                                ImGui::Selectable("", tf);
+                                if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
+                                    // Set payload to carry the index of our item (could be anything)
+                                    ImGui::SetDragDropPayload("DND_DEMO_CELL", &curShpIDX, sizeof(size_t));
+
+                                    // Display preview (could be anything, e.g. when dragging an image we could decide
+                                    // to display the filename and a small preview of the image, etc.) if (mode ==
+                                    // Mode_Copy) { ImGui::Text("Copy %s", names[n]); } if (mode == Mode_Move) {
+                                    // ImGui::Text("Move %s", names[n]); } if (mode == Mode_Swap) { ImGui::Text("Swap
+                                    // %s", names[n]); }
+                                    ImGui::EndDragDropSource();
+                                }
+                                if (ImGui::BeginDragDropTarget()) {
+                                    if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("DND_DEMO_CELL")) {
+                                        IM_ASSERT(payload->DataSize == sizeof(size_t));
+                                        size_t const payload_n = *(const size_t *)payload->Data;
+                                        if (payload_n != curShpIDX) { shps.swap(payload_n, curShpIDX); }
+                                    }
+                                    ImGui::EndDragDropTarget();
+                                }
+                                ImGui::PopID();
+                            }
+                        }
+                        ImGui::EndTable();
+
+
+                        ImGui::PopID();
+                        if (c < 2) { ImGui::SameLine(); }
+
+                        ++curShpIDX;
+                    }
+                }
+
+
+                ImGui::EndChild();
             }
 
             ImGui::SeparatorText("Main Thread Event Log");
