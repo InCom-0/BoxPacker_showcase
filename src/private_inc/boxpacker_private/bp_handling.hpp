@@ -9,24 +9,22 @@
 
 
 namespace incom::box_packer {
+struct Shape {
+    std::vector<uint32_t> m_data;
 
-struct ShapesStorage {
-    struct Shape {
-        std::vector<uint8_t> m_data;
-
-        template <std::size_t... Extents>
-        auto get_viewInto() {
-            return std::mdspan(m_data.data(), std::extents<uint8_t, Extents...>{});
-        };
-
-        template <std::size_t... Extents>
-        auto get_viewInto() const {
-            return std::mdspan(m_data.data(), std::extents<uint8_t, Extents...>{});
-        };
+    template <std::size_t... Extents>
+    auto get_viewInto() {
+        return std::mdspan(m_data.data(), std::extents<uint32_t, Extents...>{});
     };
 
-    std::vector<Shape> m_shapes;
+    template <std::size_t... Extents>
+    auto get_viewInto() const {
+        return std::mdspan(m_data.data(), std::extents<uint32_t, Extents...>{});
+    };
+};
 
+struct ShapesStorage {
+    std::vector<Shape> m_shapes;
 
     bool swap(size_t cursorA, size_t cursorB) {
         if (m_shapes.size() < cursorA || m_shapes.size() < cursorB) { return false; }

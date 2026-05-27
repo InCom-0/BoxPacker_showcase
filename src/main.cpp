@@ -287,25 +287,22 @@ int main(int, char **) {
                 ImGui::SeparatorText("Shapes Selector");
 
                 size_t curShpIDX = 0uz;
+                ImGui::BeginGroup();
                 for (int r = 0; r < 3; ++r) {
-                    {
-                        size_t curShp_cpy = curShpIDX;
-                        for (int c = 0; c < 2; ++c) {
-                            int curVal = oneTree.reqdShapes.at(curShp_cpy);
-                            ImGui::PushItemWidth(81.0);
-                            ImGui::PushID(r * 3 + c);
-                            ImGui::DragInt("", &curVal, 0.1f, 0, 100, "%d");
-                            oneTree.set_reqdShape(curShp_cpy++, curVal);
-
-                            if (c < 1) { ImGui::SameLine(); }
-                            ImGui::PopID();
-                            ImGui::PopItemWidth();
-                        }
-                    }
                     for (int c = 0; c < 2; ++c) {
+                        ImGui::BeginGroup();
+
+                        // Shape table header (count of shapes DragInt)
+                        int curVal = oneTree.reqdShapes.at(curShpIDX);
+                        ImGui::PushItemWidth(81.0);
                         ImGui::PushID(r * 3 + c);
+                        ImGui::DragInt("", &curVal, 0.1f, 0, 100, "%d");
+                        oneTree.set_reqdShape(curShpIDX, curVal);
+                        ImGui::PopID();
+                        ImGui::PopItemWidth();
 
-
+                        // Shape table begin
+                        ImGui::PushID(r * 3 + c);
                         ImGui::BeginTable("MyTable", 3,
                                           ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV |
                                               ImGuiTableFlags_BordersH | ImGuiTableFlags_SizingFixedSame |
@@ -333,19 +330,14 @@ int main(int, char **) {
                                                        ImGui::GetColorU32(spn[tRow, tCol] != 0
                                                                               ? ImVec4(0.0f, 1.0f, 0.0f, 0.65f)
                                                                               : ImVec4(0.0f, 0.0f, 0.0f, 0.65f)));
-                                if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
-                                    // Set payload to carry the index of our item (could be anything)
-                                    ImGui::SetDragDropPayload("DND_DEMO_CELL", &curShpIDX, sizeof(size_t));
 
-                                    // Display preview (could be anything, e.g. when dragging an image we could decide
-                                    // to display the filename and a small preview of the image, etc.) if (mode ==
-                                    // Mode_Copy) { ImGui::Text("Copy %s", names[n]); } if (mode == Mode_Move) {
-                                    // ImGui::Text("Move %s", names[n]); } if (mode == Mode_Swap) { ImGui::Text("Swap
-                                    // %s", names[n]); }
+                                // Drag and drop functionality (swapping of shapes)
+                                if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
+                                    ImGui::SetDragDropPayload("OneShape", &curShpIDX, sizeof(size_t));
                                     ImGui::EndDragDropSource();
                                 }
                                 if (ImGui::BeginDragDropTarget()) {
-                                    if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("DND_DEMO_CELL")) {
+                                    if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("OneShape")) {
                                         IM_ASSERT(payload->DataSize == sizeof(size_t));
                                         size_t const payload_n = *(const size_t *)payload->Data;
                                         if (payload_n != curShpIDX) { shps.swap(payload_n, curShpIDX); }
@@ -356,22 +348,119 @@ int main(int, char **) {
                             }
                         }
                         ImGui::EndTable();
-
-
                         ImGui::PopID();
-                        if (c < 1) { ImGui::SameLine(); }
 
                         ++curShpIDX;
+                        ImGui::EndGroup();
+                        if (c != 1) { ImGui::SameLine(); }
                     }
                 }
+                ImGui::EndGroup();
 
-
+                ImGui::SameLine();
+                ImGui::TextWrapped(
+                    "Sketch: background work runs on worker threads, progress is polled by the main thread "
+                    "every frame, and completion messages are drained into UI state.");
                 ImGui::EndChild();
             }
 
             // ##################################
-            // ### Logging
+            // ### Shapes selector
             // ##################################
+            {
+                ImGui::SameLine();
+                ImGui::BeginChild("ShapesSelector_window2",
+                                  ImVec2(ImGui::GetContentRegionAvail().x, 15 * 26.0f + 20.f),
+                                  ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
+                ImGui::SeparatorText("Shapes Selector");
+
+                size_t curShpIDX = 0uz;
+                ImGui::BeginGroup();
+                for (int r = 0; r < 3; ++r) {
+                    for (int c = 0; c < 2; ++c) {
+                        ImGui::BeginGroup();
+
+                        // Shape table header (count of shapes DragInt)
+                        int curVal = oneTree.reqdShapes.at(curShpIDX);
+                        ImGui::PushItemWidth(81.0);
+                        ImGui::PushID(r * 3 + c);
+                        ImGui::DragInt("", &curVal, 0.1f, 0, 100, "%d");
+                        oneTree.set_reqdShape(curShpIDX, curVal);
+                        ImGui::PopID();
+                        ImGui::PopItemWidth();
+
+                        // Shape table begin
+                        ImGui::PushID(r * 3 + c);
+                        ImGui::BeginTable("MyTable", 3,
+                                          ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV |
+                                              ImGuiTableFlags_BordersH | ImGuiTableFlags_SizingFixedSame |
+                                              ImGuiTableFlags_NoHostExtendX | ImGuiTableFlags_NoPadOuterX |
+                                              ImGuiTableFlags_NoPadInnerX,
+                                          ImVec2(0.0f, 0.0f));
+
+
+                        for (int c = 0; c < 3; ++c) {
+                            ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 26.0f);
+                        };
+
+                        auto spn = shps.m_shapes.at(curShpIDX).get_viewInto<3uz, 3uz>();
+                        for (int tRow = 0; tRow < 3; tRow++) {
+                            ImGui::TableNextRow(ImGuiTableRowFlags_None, 26);
+                            for (int tCol = 0; tCol < 3; tCol++) {
+
+                                ImGui::PushID(tRow * 3 + tCol);
+                                ImGui::TableSetColumnIndex(tCol);
+                                if (ImGui::Selectable("", false)) {
+                                    spn[tRow, tCol] = not static_cast<bool>(spn[tRow, tCol]);
+                                }
+
+                                ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg,
+                                                       ImGui::GetColorU32(spn[tRow, tCol] != 0
+                                                                              ? ImVec4(0.0f, 1.0f, 0.0f, 0.65f)
+                                                                              : ImVec4(0.0f, 0.0f, 0.0f, 0.65f)));
+
+                                // Drag and drop functionality (swapping of shapes)
+                                if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
+                                    ImGui::SetDragDropPayload("OneShape", &curShpIDX, sizeof(size_t));
+                                    ImGui::EndDragDropSource();
+                                }
+                                if (ImGui::BeginDragDropTarget()) {
+                                    if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("OneShape")) {
+                                        IM_ASSERT(payload->DataSize == sizeof(size_t));
+                                        size_t const payload_n = *(const size_t *)payload->Data;
+                                        if (payload_n != curShpIDX) { shps.swap(payload_n, curShpIDX); }
+                                    }
+                                    ImGui::EndDragDropTarget();
+                                }
+                                ImGui::PopID();
+                            }
+                        }
+                        ImGui::EndTable();
+                        ImGui::PopID();
+
+                        ++curShpIDX;
+                        ImGui::EndGroup();
+                        if (c != 1) { ImGui::SameLine(); }
+                    }
+                }
+                ImGui::EndGroup();
+
+                ImGui::SameLine();
+                ImGui::TextWrapped(
+                    "Sketch: background work runs on worker threads, progress is polled by the main thread "
+                    "every frame, and completion messages are drained into UI state.");
+                ImGui::EndChild();
+            }
+
+            // ##################################
+            // ### Current runners
+            // ##################################
+            struct RunnerResult {
+                incom::box_packer::Shape m_area;
+            };
+
+            static std::vector<RunnerResult> runRess;
+
             ImGui::SeparatorText("Current runners");
 
             // ##################################
