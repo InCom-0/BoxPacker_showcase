@@ -8,6 +8,7 @@
 // - Documentation        https://dearimgui.com/docs (same as your local docs/ folder).
 // - Introduction, links and more at the top of imgui.cpp
 
+#include <format>
 #include <imgui.h>
 #include <imgui_impl_opengl3.h>
 #include <imgui_impl_sdl2.h>
@@ -46,8 +47,23 @@ int main(int, char **) {
 
     auto const [shapes_ORIG, trees_ORIG] = incom::box_packer::get_integratedSampleData(df);
 
-    auto shps         = shapes_ORIG;
-    auto trees        = trees_ORIG;
+    auto shps  = shapes_ORIG;
+    auto trees = trees_ORIG;
+
+    std::vector<std::string> treeLabels;
+
+    for (size_t id = 0uz; auto const &oneTree : trees) {
+        treeLabels.push_back(std::format("{0:}: {1:}x{2:} (", id, oneTree.yDim, oneTree.xDim));
+
+        std::string aror{};
+
+        treeLabels.back().append(std::format("{:n}", oneTree.reqdShapes));
+        treeLabels.back().push_back(')');
+        ++id;
+    }
+
+    auto oneTree = trees_ORIG.front();
+
     namespace incpack = incom::standard::solvers::packing;
 
 
@@ -198,14 +214,7 @@ int main(int, char **) {
             ImGui::TextWrapped("Sketch: background work runs on worker threads, progress is polled by the main thread "
                                "every frame, and completion messages are drained into UI state.");
 
-            if (ImGui::Button("Reset shapes")) { shps = shapes_ORIG; }
 
-            if (ImGui::Button("Queue background job")) { background_work.start_demo_job(); }
-            ImGui::SameLine();
-            if (ImGui::Button("Cancel all jobs")) { background_work.cancel_all(); }
-            ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical, 4);
-
-            ImGui::SeparatorText("Background Jobs");
             const auto job_snapshots = background_work.snapshot_jobs();
             if (job_snapshots.empty()) { ImGui::TextDisabled("No work scheduled yet."); }
             else {
@@ -222,20 +231,76 @@ int main(int, char **) {
                 }
             }
 
+
+            // ##################################
+            // ### Main Controls
+            // ##################################
             {
-                ImGui::BeginChild("ChildL", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 15 * 26.0f + 20.f),
-                                  ImGuiChildFlags_None, 0);
+
+                ImGui::BeginChild("MainControls_window",
+                                  ImVec2(ImGui::GetContentRegionAvail().x * 0.33f, 12 * 26.0f + 20.f),
+                                  ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
+                ImGui::SeparatorText("Main Controls");
+
+                static size_t treeSelectedID = 0uz;
+                std::string   rim{"aaa"};
+                if (ImGui::BeginCombo("Select sample", treeLabels[treeSelectedID].data(), 0)) {
+                    static ImGuiTextFilter filter;
+                    if (ImGui::IsWindowAppearing()) {
+                        ImGui::SetKeyboardFocusHere();
+                        filter.Clear();
+                    }
+                    ImGui::SetNextItemShortcut(ImGuiMod_Ctrl | ImGuiKey_F);
+                    filter.Draw("##Filter", -FLT_MIN);
+
+                    for (int n = 0; n < treeLabels.size(); n++) {
+                        const bool is_selected = (treeSelectedID == n);
+                        if (filter.PassFilter(treeLabels[n].data())) {
+                            if (ImGui::Selectable(treeLabels[n].data(), is_selected)) { treeSelectedID = n; }
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+                if (ImGui::Button("Reset to selected sample")) {
+                    shps    = shapes_ORIG;
+                    oneTree = trees.at(treeSelectedID);
+                }
+
+                ImGui::Dummy(ImGui::GetItemRectSize());
+
+                if (ImGui::Button("Queue background job")) { background_work.start_demo_job(); }
+                ImGui::SameLine();
+                if (ImGui::Button("Cancel all jobs")) { background_work.cancel_all(); }
+                ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical, 4);
+
+                ImGui::EndChild();
+            }
+
+            // ##################################
+            // ### Shapes selector
+            // ##################################
+            {
+                ImGui::SameLine();
+                ImGui::BeginChild("ShapesSelector_window",
+                                  ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 15 * 26.0f + 20.f),
+                                  ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
+                ImGui::SeparatorText("Shapes Selector");
 
                 size_t curShpIDX = 0uz;
                 for (int r = 0; r < 3; ++r) {
-                    for (int c = 0; c < 2; ++c) {
-                        static int drag_i = 0;
-                        ImGui::PushItemWidth(81.0);
-                        ImGui::PushID(r * 3 + c);
-                        ImGui::DragInt("", &drag_i, 0.1f, 0, 100, "%d");
-                        if (c < 1) { ImGui::SameLine(); }
-                        ImGui::PopID();
-                        ImGui::PopItemWidth();
+                    {
+                        size_t curShp_cpy = curShpIDX;
+                        for (int c = 0; c < 2; ++c) {
+                            int curVal = oneTree.reqdShapes.at(curShp_cpy);
+                            ImGui::PushItemWidth(81.0);
+                            ImGui::PushID(r * 3 + c);
+                            ImGui::DragInt("", &curVal, 0.1f, 0, 100, "%d");
+                            oneTree.set_reqdShape(curShp_cpy++, curVal);
+
+                            if (c < 1) { ImGui::SameLine(); }
+                            ImGui::PopID();
+                            ImGui::PopItemWidth();
+                        }
                     }
                     for (int c = 0; c < 2; ++c) {
                         ImGui::PushID(r * 3 + c);
@@ -249,7 +314,7 @@ int main(int, char **) {
                                           ImVec2(0.0f, 0.0f));
 
 
-                        for (int c = 0; c < 2; ++c) {
+                        for (int c = 0; c < 3; ++c) {
                             ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 26.0f);
                         };
 
@@ -259,12 +324,15 @@ int main(int, char **) {
                             for (int tCol = 0; tCol < 3; tCol++) {
 
                                 ImGui::PushID(tRow * 3 + tCol);
-                                bool tf = false;
                                 ImGui::TableSetColumnIndex(tCol);
-                                ImGui::Selectable("", tf);
+                                if (ImGui::Selectable("", false)) {
+                                    spn[tRow, tCol] = not static_cast<bool>(spn[tRow, tCol]);
+                                }
 
                                 ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg,
-                                                       ImGui::GetColorU32(spn[tRow, tCol] != 0 ? ImVec4(0.0f, 1.0f, 0.0f, 0.65f) : ImVec4(0.0f, 0.0f, 0.0f, 0.65f)));
+                                                       ImGui::GetColorU32(spn[tRow, tCol] != 0
+                                                                              ? ImVec4(0.0f, 1.0f, 0.0f, 0.65f)
+                                                                              : ImVec4(0.0f, 0.0f, 0.0f, 0.65f)));
                                 if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
                                     // Set payload to carry the index of our item (could be anything)
                                     ImGui::SetDragDropPayload("DND_DEMO_CELL", &curShpIDX, sizeof(size_t));
@@ -301,6 +369,14 @@ int main(int, char **) {
                 ImGui::EndChild();
             }
 
+            // ##################################
+            // ### Logging
+            // ##################################
+            ImGui::SeparatorText("Current runners");
+
+            // ##################################
+            // ### Logging
+            // ##################################
             ImGui::SeparatorText("Main Thread Event Log");
             if (recent_events.empty()) { ImGui::TextDisabled("No completion messages received yet."); }
             else {
@@ -321,6 +397,7 @@ int main(int, char **) {
         glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         SDL_GL_SwapWindow(window);
+        SDL_Delay(6);
     }
 #ifdef __EMSCRIPTEN__
     EMSCRIPTEN_MAINLOOP_END;

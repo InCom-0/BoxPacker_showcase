@@ -40,6 +40,25 @@ struct Tree {
     int                        yDim;
     int                        xDim;
     std::vector<std::uint64_t> reqdShapes;
+
+
+    bool set_reqdShape(size_t cursor, int newValue) {
+        if (cursor >= reqdShapes.size()) { return false; }
+        reqdShapes[cursor] = std::max(0, newValue);
+        return true;
+    }
+
+    int make_szFit(size_t newSz) {
+        if (reqdShapes.size() == newSz) { return 0; }
+        else if (reqdShapes.size() < newSz) {
+            do { reqdShapes.push_back(0ull); } while (reqdShapes.size() < newSz);
+            return -1;
+        }
+        else {
+            do { reqdShapes.pop_back(); } while (reqdShapes.size() < newSz);
+            return 1;
+        }
+    }
 };
 
 
