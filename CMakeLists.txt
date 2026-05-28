@@ -71,13 +71,13 @@ check_ipo_supported(RESULT boxpacker_showcase_LTO OUTPUT boxpacker_showcase_LTO_
 ######################################################################
 add_executable(boxpacker_showcase)
 target_sources(boxpacker_showcase PRIVATE src/main.cpp)
-target_sources(boxpacker_showcase
-    PRIVATE
-    FILE_SET pub_headers
-    TYPE HEADERS
-    BASE_DIRS
-    include
-)
+# target_sources(boxpacker_showcase
+#     PRIVATE
+#     FILE_SET pub_headers
+#     TYPE HEADERS
+#     BASE_DIRS
+#     include
+# )
 target_sources(boxpacker_showcase
     PRIVATE
     FILE_SET priv_headers
@@ -88,15 +88,15 @@ target_sources(boxpacker_showcase
 
 
 
-set(boxpacker_showcase_GENERATED_CONFIG_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+# set(boxpacker_showcase_GENERATED_CONFIG_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 
-target_sources(boxpacker_showcase
-    PRIVATE
-    FILE_SET priv_auto_config
-    TYPE HEADERS
-    BASE_DIRS
-    "${boxpacker_showcase_GENERATED_CONFIG_DIR}"
-)
+# target_sources(boxpacker_showcase
+#     PRIVATE
+#     FILE_SET priv_auto_config
+#     TYPE HEADERS
+#     BASE_DIRS
+#     "${boxpacker_showcase_GENERATED_CONFIG_DIR}"
+# )
 
 
 target_compile_features(boxpacker_showcase PRIVATE cxx_std_23)

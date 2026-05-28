@@ -8,11 +8,13 @@
 // - Documentation        https://dearimgui.com/docs (same as your local docs/ folder).
 // - Introduction, links and more at the top of imgui.cpp
 
+#include <ankerl/unordered_dense.h>
 #include <format>
 #include <imgui.h>
 #include <imgui_impl_opengl3.h>
 #include <imgui_impl_sdl2.h>
 #include <imgui_internal.h>
+#include <optional>
 #include <stdio.h>
 
 #include <string>
@@ -62,7 +64,12 @@ int main(int, char **) {
         ++id;
     }
 
-    auto oneTree = trees_ORIG.front();
+    size_t oneShape_sideSize = 3uz; // Change later so that it can adjusted manually
+    auto   oneTree           = trees_ORIG.front();
+
+
+    std::vector<incom::box_packer::Tree> planTrees;
+
 
     namespace incpack = incom::standard::solvers::packing;
 
@@ -243,8 +250,7 @@ int main(int, char **) {
                 ImGui::SeparatorText("Main Controls");
 
                 static size_t treeSelectedID = 0uz;
-                std::string   rim{"aaa"};
-                if (ImGui::BeginCombo("Select sample", treeLabels[treeSelectedID].data(), 0)) {
+                if (ImGui::BeginCombo("Select sample 🗑", treeLabels[treeSelectedID].data(), 0)) {
                     static ImGuiTextFilter filter;
                     if (ImGui::IsWindowAppearing()) {
                         ImGui::SetKeyboardFocusHere();
@@ -261,16 +267,44 @@ int main(int, char **) {
                     }
                     ImGui::EndCombo();
                 }
-                if (ImGui::Button("Reset to selected sample")) {
+                if (ImGui::Button("Add to plan")) { planTrees.push_back(trees.at(treeSelectedID)); }
+                ImGui::Dummy(ImGui::GetItemRectSize());
+                ImGui::SeparatorText("Convenience helpers");
+                if (ImGui::Button("Selected sample -> custom")) {
                     shps    = shapes_ORIG;
                     oneTree = trees.at(treeSelectedID);
                 }
+                if (ImGui::Button("Clear plan")) { planTrees.clear(); }
+                ImGui::SameLine();
+                if (ImGui::Button("De-duplicate plan")) {
+
+                    ankerl::unordered_dense::set<incom::box_packer::Tree, incom::standard::hashing::XXH3Hasher> st;
+
+                    std::vector<char> deleteMarked;
+                    for (auto &oneTree : planTrees) {
+                        auto [_, inserted] = st.insert(oneTree);
+                        deleteMarked.push_back(not inserted);
+                    }
+                    auto removed = std::ranges::remove_if(
+                        planTrees, std::identity{}, // predicate sees projected value (bool-like)
+                        [base = planTrees.data(), &deleteMarked](incom::box_packer::Tree const &t) {
+                            auto idx = static_cast<size_t>(&t - base);
+                            return deleteMarked[idx] != 0;
+                        });
+                    planTrees.erase(removed.begin(), removed.end());
+                }
+
 
                 ImGui::Dummy(ImGui::GetItemRectSize());
 
-                if (ImGui::Button("Queue background job")) { background_work.start_demo_job(); }
+                ImGui::SeparatorText("Job control");
+                if (ImGui::Button("Execute plan")) {
+                    //  background_work.start_demo_job();
+                }
                 ImGui::SameLine();
-                if (ImGui::Button("Cancel all jobs")) { background_work.cancel_all(); }
+                if (ImGui::Button("Cancel all jobs")) {
+                    // background_work.cancel_all();
+                }
                 ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical, 4);
 
                 ImGui::EndChild();
@@ -281,174 +315,188 @@ int main(int, char **) {
             // ##################################
             {
                 ImGui::SameLine();
-                ImGui::BeginChild("ShapesSelector_window",
-                                  ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 15 * 26.0f + 20.f),
-                                  ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
-                ImGui::SeparatorText("Shapes Selector");
+                ImGui::BeginChild("CustomAdjust_window", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 0),
+                                  ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY,
+                                  ImGuiWindowFlags_HorizontalScrollbar);
+                ImGui::SeparatorText("Custom shapes, counts and sizes");
 
-                size_t curShpIDX = 0uz;
-                ImGui::BeginGroup();
-                for (int r = 0; r < 3; ++r) {
-                    for (int c = 0; c < 2; ++c) {
-                        ImGui::BeginGroup();
+                {
+                    size_t const rowCount  = (shps.m_shapes.size() + 2uz) / 3uz;
+                    size_t       curShpIDX = 0uz;
+                    ImGui::BeginGroup();
+                    for (int r = 0; r < rowCount; ++r) {
+                        size_t const colCount = std::min(3uz, shps.m_shapes.size() - curShpIDX);
+                        for (int c = 0; c < colCount; ++c) {
+                            ImGui::BeginGroup();
 
-                        // Shape table header (count of shapes DragInt)
-                        int curVal = oneTree.reqdShapes.at(curShpIDX);
-                        ImGui::PushItemWidth(81.0);
-                        ImGui::PushID(r * 3 + c);
-                        ImGui::DragInt("", &curVal, 0.1f, 0, 100, "%d");
-                        oneTree.set_reqdShape(curShpIDX, curVal);
-                        ImGui::PopID();
-                        ImGui::PopItemWidth();
+                            // Shape table header (count of shapes DragInt)
+                            int curVal = oneTree.reqdShapes.at(curShpIDX);
+                            ImGui::PushItemWidth(81.0);
+                            ImGui::PushID(r * 3 + c);
+                            ImGui::DragInt("", &curVal, 0.1f, 0, 100, "%d");
+                            oneTree.set_reqdShape(curShpIDX, curVal);
+                            ImGui::PopID();
+                            ImGui::PopItemWidth();
 
-                        // Shape table begin
-                        ImGui::PushID(r * 3 + c);
-                        ImGui::BeginTable("MyTable", 3,
-                                          ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV |
-                                              ImGuiTableFlags_BordersH | ImGuiTableFlags_SizingFixedSame |
-                                              ImGuiTableFlags_NoHostExtendX | ImGuiTableFlags_NoPadOuterX |
-                                              ImGuiTableFlags_NoPadInnerX,
-                                          ImVec2(0.0f, 0.0f));
+                            // Shape table begin
+                            ImGui::PushID(r * rowCount + c);
+                            ImGui::BeginTable("MyTable", 3,
+                                              ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV |
+                                                  ImGuiTableFlags_BordersH | ImGuiTableFlags_SizingFixedSame |
+                                                  ImGuiTableFlags_NoHostExtendX | ImGuiTableFlags_NoPadOuterX |
+                                                  ImGuiTableFlags_NoPadInnerX,
+                                              ImVec2(0.0f, 0.0f));
 
 
-                        for (int c = 0; c < 3; ++c) {
-                            ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 26.0f);
-                        };
+                            for (int c = 0; c < 3; ++c) {
+                                ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 26.0f);
+                            };
 
-                        auto spn = shps.m_shapes.at(curShpIDX).get_viewInto<3uz, 3uz>();
-                        for (int tRow = 0; tRow < 3; tRow++) {
-                            ImGui::TableNextRow(ImGuiTableRowFlags_None, 26);
-                            for (int tCol = 0; tCol < 3; tCol++) {
+                            auto spn = shps.m_shapes.at(curShpIDX).get_viewInto<3uz, 3uz>();
+                            // auto spn = shps.m_shapes.at(curShpIDX).get_viewInto(3uz, 3uz);
+                            for (int tRow = 0; tRow < 3; tRow++) {
+                                ImGui::TableNextRow(ImGuiTableRowFlags_None, 26);
+                                for (int tCol = 0; tCol < 3; tCol++) {
 
-                                ImGui::PushID(tRow * 3 + tCol);
-                                ImGui::TableSetColumnIndex(tCol);
-                                if (ImGui::Selectable("", false)) {
-                                    spn[tRow, tCol] = not static_cast<bool>(spn[tRow, tCol]);
-                                }
-
-                                ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg,
-                                                       ImGui::GetColorU32(spn[tRow, tCol] != 0
-                                                                              ? ImVec4(0.0f, 1.0f, 0.0f, 0.65f)
-                                                                              : ImVec4(0.0f, 0.0f, 0.0f, 0.65f)));
-
-                                // Drag and drop functionality (swapping of shapes)
-                                if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
-                                    ImGui::SetDragDropPayload("OneShape", &curShpIDX, sizeof(size_t));
-                                    ImGui::EndDragDropSource();
-                                }
-                                if (ImGui::BeginDragDropTarget()) {
-                                    if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("OneShape")) {
-                                        IM_ASSERT(payload->DataSize == sizeof(size_t));
-                                        size_t const payload_n = *(const size_t *)payload->Data;
-                                        if (payload_n != curShpIDX) { shps.swap(payload_n, curShpIDX); }
+                                    ImGui::PushID(tRow * 3 + tCol);
+                                    ImGui::TableSetColumnIndex(tCol);
+                                    if (ImGui::Selectable("", false)) {
+                                        spn[tRow, tCol] = not static_cast<bool>(spn[tRow, tCol]);
                                     }
-                                    ImGui::EndDragDropTarget();
-                                }
-                                ImGui::PopID();
-                            }
-                        }
-                        ImGui::EndTable();
-                        ImGui::PopID();
 
-                        ++curShpIDX;
-                        ImGui::EndGroup();
-                        if (c != 1) { ImGui::SameLine(); }
+                                    ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg,
+                                                           ImGui::GetColorU32(spn[tRow, tCol] != 0
+                                                                                  ? ImVec4(0.0f, 1.0f, 0.0f, 0.65f)
+                                                                                  : ImVec4(0.0f, 0.0f, 0.0f, 0.65f)));
+
+                                    // Drag and drop functionality (swapping of shapes)
+                                    if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
+                                        ImGui::SetDragDropPayload("OneShape", &curShpIDX, sizeof(size_t));
+                                        ImGui::EndDragDropSource();
+                                    }
+                                    if (ImGui::BeginDragDropTarget()) {
+                                        if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("OneShape")) {
+                                            IM_ASSERT(payload->DataSize == sizeof(size_t));
+                                            size_t const payload_n = *(const size_t *)payload->Data;
+                                            if (payload_n != curShpIDX) { shps.swap(payload_n, curShpIDX); }
+                                        }
+                                        ImGui::EndDragDropTarget();
+                                    }
+                                    ImGui::PopID();
+                                }
+                            }
+                            ImGui::EndTable();
+                            ImGui::PopID();
+
+                            ++curShpIDX;
+                            ImGui::EndGroup();
+                            if (c != (colCount - 1)) { ImGui::SameLine(); }
+                        }
+                    }
+                    ImGui::Dummy(ImVec2{0, ImGui::GetItemRectSize().y / 8});
+                    if (ImGui::Button("Counts, sizes -> plan",
+                                      ImVec2(9 * 26 + ImGui::GetStyle().FramePadding.x * 6, 0))) {
+                        planTrees.push_back(oneTree);
                     }
                 }
                 ImGui::EndGroup();
 
                 ImGui::SameLine();
-                ImGui::TextWrapped(
-                    "Sketch: background work runs on worker threads, progress is polled by the main thread "
-                    "every frame, and completion messages are drained into UI state.");
+                ImGui::Dummy({26, 0});
+                ImGui::SameLine();
+
+                ImGui::BeginGroup();
+
+                ImGui::PushID(0);
+                if (ImGui::Button("  ")) {
+                    shps.m_shapes.push_back(
+                        {.m_data = std::vector<uint32_t>(oneShape_sideSize * oneShape_sideSize, 0)});
+                    oneTree.reqdShapes.push_back(0);
+                }
+                ImGui::PopID();
+                ImGui::SameLine();
+                ImGui::Text("Add shape");
+
+
+                ImGui::PushID(1);
+                if (ImGui::Button("  ")) {
+                    if (shps.m_shapes.empty() || oneTree.reqdShapes.empty()) {}
+                    else {
+                        shps.m_shapes.pop_back();
+                        oneTree.reqdShapes.pop_back();
+                    }
+                }
+                if (ImGui::BeginDragDropTarget()) {
+                    if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("OneShape")) {
+                        IM_ASSERT(payload->DataSize == sizeof(size_t));
+                        size_t const payload_n = *(const size_t *)payload->Data;
+
+                        shps.removeErase_oneID(payload_n);
+                        oneTree.removeErase_oneID(payload_n);
+                    }
+                    ImGui::EndDragDropTarget();
+                }
+                ImGui::PopID();
+                ImGui::SameLine();
+                ImGui::Text("Remove shape");
+
+
+                ImGui::Dummy(ImGui::GetItemRectSize());
+
+                ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 0.7);
+
+                int curVal = oneTree.xDim;
+                ImGui::DragInt("xSize", &curVal, 0.2f, 0, 100, "%d");
+                oneTree.xDim = std::max(0, curVal);
+
+                curVal = oneTree.yDim;
+                ImGui::DragInt("ySize", &curVal, 0.2f, 0, 100, "%d");
+                oneTree.yDim = std::max(0, curVal);
+
+                ImGui::PopItemWidth();
+
+                ImGui::TextWrapped("The runner always grabs the shape 'types' from here when when queued.");
+                ImGui::EndGroup();
                 ImGui::EndChild();
             }
 
             // ##################################
-            // ### Shapes selector
+            // ### Runner Plan
             // ##################################
+
+
             {
                 ImGui::SameLine();
-                ImGui::BeginChild("ShapesSelector_window2",
-                                  ImVec2(ImGui::GetContentRegionAvail().x, 15 * 26.0f + 20.f),
-                                  ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
-                ImGui::SeparatorText("Shapes Selector");
+                ImGui::BeginChild("RunnerPlan", ImVec2(ImGui::GetContentRegionAvail().x, 0),
+                                  ImGuiChildFlags_AutoResizeY, ImGuiWindowFlags_HorizontalScrollbar);
+                ImGui::SeparatorText("Plan");
 
-                size_t curShpIDX = 0uz;
-                ImGui::BeginGroup();
-                for (int r = 0; r < 3; ++r) {
-                    for (int c = 0; c < 2; ++c) {
-                        ImGui::BeginGroup();
+                if (ImGui::BeginTable("table_context_menu_2", 3, 0)) {
+                    ImGui::TableSetupColumn("Size");
+                    ImGui::TableSetupColumn("Shape counts");
+                    ImGui::TableSetupColumn("");
 
-                        // Shape table header (count of shapes DragInt)
-                        int curVal = oneTree.reqdShapes.at(curShpIDX);
-                        ImGui::PushItemWidth(81.0);
-                        ImGui::PushID(r * 3 + c);
-                        ImGui::DragInt("", &curVal, 0.1f, 0, 100, "%d");
-                        oneTree.set_reqdShape(curShpIDX, curVal);
+                    ImGui::TableHeadersRow();
+
+                    std::optional<size_t> idToDel = std::nullopt;
+                    for (int row = 0; row < planTrees.size(); row++) {
+                        ImGui::TableNextRow();
+
+                        ImGui::TableSetColumnIndex(0);
+                        ImGui::Text("%dx%d", planTrees[row].yDim, planTrees[row].xDim);
+                        ImGui::TableSetColumnIndex(1);
+                        ImGui::Text("(%s)", std::format("{:n}", planTrees[row].reqdShapes).data());
+
+                        ImGui::TableSetColumnIndex(2);
+                        ImGui::PushID(row * 3 + 2);
+                        if (ImGui::SmallButton("D")) { idToDel = row; }
                         ImGui::PopID();
-                        ImGui::PopItemWidth();
-
-                        // Shape table begin
-                        ImGui::PushID(r * 3 + c);
-                        ImGui::BeginTable("MyTable", 3,
-                                          ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV |
-                                              ImGuiTableFlags_BordersH | ImGuiTableFlags_SizingFixedSame |
-                                              ImGuiTableFlags_NoHostExtendX | ImGuiTableFlags_NoPadOuterX |
-                                              ImGuiTableFlags_NoPadInnerX,
-                                          ImVec2(0.0f, 0.0f));
-
-
-                        for (int c = 0; c < 3; ++c) {
-                            ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 26.0f);
-                        };
-
-                        auto spn = shps.m_shapes.at(curShpIDX).get_viewInto<3uz, 3uz>();
-                        for (int tRow = 0; tRow < 3; tRow++) {
-                            ImGui::TableNextRow(ImGuiTableRowFlags_None, 26);
-                            for (int tCol = 0; tCol < 3; tCol++) {
-
-                                ImGui::PushID(tRow * 3 + tCol);
-                                ImGui::TableSetColumnIndex(tCol);
-                                if (ImGui::Selectable("", false)) {
-                                    spn[tRow, tCol] = not static_cast<bool>(spn[tRow, tCol]);
-                                }
-
-                                ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg,
-                                                       ImGui::GetColorU32(spn[tRow, tCol] != 0
-                                                                              ? ImVec4(0.0f, 1.0f, 0.0f, 0.65f)
-                                                                              : ImVec4(0.0f, 0.0f, 0.0f, 0.65f)));
-
-                                // Drag and drop functionality (swapping of shapes)
-                                if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
-                                    ImGui::SetDragDropPayload("OneShape", &curShpIDX, sizeof(size_t));
-                                    ImGui::EndDragDropSource();
-                                }
-                                if (ImGui::BeginDragDropTarget()) {
-                                    if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("OneShape")) {
-                                        IM_ASSERT(payload->DataSize == sizeof(size_t));
-                                        size_t const payload_n = *(const size_t *)payload->Data;
-                                        if (payload_n != curShpIDX) { shps.swap(payload_n, curShpIDX); }
-                                    }
-                                    ImGui::EndDragDropTarget();
-                                }
-                                ImGui::PopID();
-                            }
-                        }
-                        ImGui::EndTable();
-                        ImGui::PopID();
-
-                        ++curShpIDX;
-                        ImGui::EndGroup();
-                        if (c != 1) { ImGui::SameLine(); }
                     }
+                    if (idToDel) { planTrees.erase(planTrees.begin() + idToDel.value()); }
                 }
-                ImGui::EndGroup();
+                ImGui::EndTable();
 
-                ImGui::SameLine();
-                ImGui::TextWrapped(
-                    "Sketch: background work runs on worker threads, progress is polled by the main thread "
-                    "every frame, and completion messages are drained into UI state.");
+
                 ImGui::EndChild();
             }
 

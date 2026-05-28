@@ -1,5 +1,7 @@
 #pragma once
 
+#include <algorithm>
+#include <concepts>
 #include <cstdint>
 #include <incstd/incstd_all.hpp>
 #include <mdspan>
@@ -21,6 +23,14 @@ struct Shape {
     auto get_viewInto() const {
         return std::mdspan(m_data.data(), std::extents<uint32_t, Extents...>{});
     };
+
+    auto get_viewInto(std::convertible_to<size_t> auto const... ids) {
+        return std::mdspan(m_data.data(), std::dextents<uint32_t, sizeof...(ids)>{});
+    };
+
+    auto get_viewInto(std::convertible_to<size_t> auto const... ids) const {
+        return std::mdspan(m_data.data(), std::dextents<uint32_t, sizeof...(ids)>{});
+    };
 };
 
 struct ShapesStorage {
@@ -31,13 +41,25 @@ struct ShapesStorage {
         std::swap(m_shapes[cursorA], m_shapes[cursorB]);
         return true;
     }
-};
 
+
+    bool removeErase_oneID(size_t const idToRemove) {
+        if (idToRemove >= m_shapes.size()) { return false; }
+        m_shapes.erase(m_shapes.begin() + static_cast<std::ptrdiff_t>(idToRemove));
+        return true;
+    }
+};
 
 struct Tree {
     int                        yDim;
     int                        xDim;
     std::vector<std::uint64_t> reqdShapes;
+
+    bool removeErase_oneID(size_t const idToRemove) {
+        if (idToRemove >= reqdShapes.size()) { return false; }
+        reqdShapes.erase(reqdShapes.begin() + static_cast<std::ptrdiff_t>(idToRemove));
+        return true;
+    }
 
 
     bool set_reqdShape(size_t cursor, int newValue) {
@@ -56,6 +78,15 @@ struct Tree {
             do { reqdShapes.pop_back(); } while (reqdShapes.size() < newSz);
             return 1;
         }
+    }
+
+    bool operator==(Tree const&) const = default;
+
+    // ADL for hashing using XXH3Hasher
+    friend constexpr void XXH3Hash(Tree const &input, XXH3_state_t *state) {
+        XXH3_64bits_update(state, &input.yDim, sizeof(int));
+        XXH3_64bits_update(state, &input.xDim, sizeof(int));
+        XXH3_64bits_update(state, input.reqdShapes.data(), sizeof(std::uint64_t) * input.reqdShapes.size());
     }
 };
 
