@@ -8,17 +8,25 @@
 // - Documentation        https://dearimgui.com/docs (same as your local docs/ folder).
 // - Introduction, links and more at the top of imgui.cpp
 
+
+#include <optional>
+#include <stdio.h>
+#include <string>
+#include <vector>
+
 #include <ankerl/unordered_dense.h>
 #include <format>
 #include <imgui.h>
 #include <imgui_impl_opengl3.h>
 #include <imgui_impl_sdl2.h>
 #include <imgui_internal.h>
-#include <optional>
-#include <stdio.h>
 
-#include <string>
-#include <vector>
+#include <exec/async_scope.hpp>
+#include <exec/execute.hpp>
+#include <exec/repeat_n.hpp>
+#include <exec/static_thread_pool.hpp>
+#include <stdexec/execution.hpp>
+
 
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
@@ -36,7 +44,6 @@
 #include <boxpacker_private/emscripten_mainloop_stub.h>
 #endif
 
-#include <boxpacker_private/background_work_sketch.h>
 #include <boxpacker_private/bp_handling.hpp>
 #include <boxpacker_private/incom_commons.h>
 
@@ -169,12 +176,12 @@ int main(int, char **) {
     io.Fonts->AddFontDefaultVector();
 
     // Our state
-    ImVec4                                  clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
-    boxpacker_private::BackgroundWorkSketch background_work;
-    std::vector<std::string>                recent_events;
+    ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
 
-    // Main loop
+    // ##################################
+    // ### MAIN LOOP START
+    // ##################################
     bool done = false;
 #ifdef __EMSCRIPTEN__
     // For an Emscripten build we are disabling file-system access, so let's not attempt to do a fopen() of the
@@ -185,6 +192,10 @@ int main(int, char **) {
     while (! done)
 #endif
     {
+        auto [result] = stdexec::sync_wait(stdexec::just(42)).value(); // Start the work & wait for the result
+        assert(result == 42);
+
+
         // Event handling
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
@@ -205,12 +216,6 @@ int main(int, char **) {
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
 
-        for (std::string message : background_work.drain_completed_messages()) {
-            recent_events.push_back(std::move(message));
-        }
-        if (recent_events.size() > 6) { recent_events.erase(recent_events.begin(), recent_events.end() - 6); }
-
-
         {
             ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
             ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
@@ -220,23 +225,6 @@ int main(int, char **) {
 
             ImGui::TextWrapped("Sketch: background work runs on worker threads, progress is polled by the main thread "
                                "every frame, and completion messages are drained into UI state.");
-
-
-            const auto job_snapshots = background_work.snapshot_jobs();
-            if (job_snapshots.empty()) { ImGui::TextDisabled("No work scheduled yet."); }
-            else {
-                for (const auto &job : job_snapshots) {
-                    ImGui::PushID(static_cast<int>(job.id));
-                    ImGui::Text("Job #%llu", static_cast<unsigned long long>(job.id));
-                    ImGui::ProgressBar(job.progress, ImVec2(0.f, 0.f));
-                    ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
-                    ImGui::Text("%s", job.status.c_str());
-                    if (job.cancelled) { ImGui::TextDisabled("Cancelled before completion."); }
-                    else if (job.done) { ImGui::TextDisabled("Finished and ready for result handoff."); }
-                    else { ImGui::TextDisabled("Running on a worker thread."); }
-                    ImGui::PopID();
-                }
-            }
 
 
             // ##################################
@@ -267,7 +255,11 @@ int main(int, char **) {
                     }
                     ImGui::EndCombo();
                 }
+
                 if (ImGui::Button("Add to plan")) { planTrees.push_back(trees.at(treeSelectedID)); }
+                ImGui::SameLine();
+                if (ImGui::Button("Add all to plan")) { planTrees.append_range(trees); }
+
                 ImGui::Dummy(ImGui::GetItemRectSize());
                 ImGui::SeparatorText("Convenience helpers");
                 if (ImGui::Button("Selected sample -> custom")) {
@@ -464,14 +456,15 @@ int main(int, char **) {
             // ### Runner Plan
             // ##################################
 
-
             {
+                auto const prevGroupSize_v = ImGui::GetItemRectSize().y;
                 ImGui::SameLine();
                 ImGui::BeginChild("RunnerPlan", ImVec2(ImGui::GetContentRegionAvail().x, 0),
                                   ImGuiChildFlags_AutoResizeY, ImGuiWindowFlags_HorizontalScrollbar);
-                ImGui::SeparatorText("Plan");
 
-                if (ImGui::BeginTable("table_context_menu_2", 3, 0)) {
+                ImGui::SeparatorText("Plan");
+                if (ImGui::BeginTable("table_context_menu_2", 3, ImGuiTableFlags_ScrollY, {0, prevGroupSize_v})) {
+                    ImGui::TableSetupScrollFreeze(0, 1); // Make top row always visible
                     ImGui::TableSetupColumn("Size");
                     ImGui::TableSetupColumn("Shape counts");
                     ImGui::TableSetupColumn("");
@@ -514,13 +507,7 @@ int main(int, char **) {
             // ##################################
             // ### Logging
             // ##################################
-            ImGui::SeparatorText("Main Thread Event Log");
-            if (recent_events.empty()) { ImGui::TextDisabled("No completion messages received yet."); }
-            else {
-                for (auto it = recent_events.rbegin(); it != recent_events.rend(); ++it) {
-                    ImGui::BulletText("%s", it->c_str());
-                }
-            }
+            ImGui::SeparatorText("Event Log");
 
             ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
             ImGui::End();

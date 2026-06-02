@@ -1,2 +1,4 @@
 CompileFlags:
   BuiltinHeaders: QueryDriver
+  Remove:
+  - -fconcepts-diagnostics-depth=*
