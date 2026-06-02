@@ -52,6 +52,10 @@
 
 // Main code
 int main(int, char **) {
+
+    // ##################################
+    // ### Setting up data structures
+    // ##################################
     std::string df{BOXPACKER_SAMPLE_INPUT};
 
     auto const [shapes_ORIG, trees_ORIG] = incom::box_packer::get_integratedSampleData(df);
@@ -61,6 +65,7 @@ int main(int, char **) {
 
     std::vector<std::string> treeLabels;
 
+    // Pre-computing the 'example' labels
     for (size_t id = 0uz; auto const &oneTree : trees) {
         treeLabels.push_back(std::format("{0:}: {1:}x{2:} (", id, oneTree.yDim, oneTree.xDim));
 
@@ -468,24 +473,29 @@ int main(int, char **) {
                     ImGui::TableSetupColumn("Size");
                     ImGui::TableSetupColumn("Shape counts");
                     ImGui::TableSetupColumn("");
-
                     ImGui::TableHeadersRow();
 
                     std::optional<size_t> idToDel = std::nullopt;
-                    for (int row = 0; row < planTrees.size(); row++) {
-                        ImGui::TableNextRow();
 
-                        ImGui::TableSetColumnIndex(0);
-                        ImGui::Text("%dx%d", planTrees[row].yDim, planTrees[row].xDim);
-                        ImGui::TableSetColumnIndex(1);
-                        ImGui::Text("(%s)", std::format("{:n}", planTrees[row].reqdShapes).data());
+                    ImGuiListClipper clipper;
+                    clipper.Begin(planTrees.size());
+                    while (clipper.Step()) {
+                        for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; row++) {
+                            ImGui::TableNextRow();
 
-                        ImGui::TableSetColumnIndex(2);
-                        ImGui::PushID(row * 3 + 2);
-                        if (ImGui::SmallButton("D")) { idToDel = row; }
-                        ImGui::PopID();
+                            ImGui::TableSetColumnIndex(0);
+                            ImGui::Text("%dx%d", planTrees[row].yDim, planTrees[row].xDim);
+                            ImGui::TableSetColumnIndex(1);
+                            ImGui::Text("(%s)", std::format("{:n}", planTrees[row].reqdShapes).data());
+
+                            ImGui::TableSetColumnIndex(2);
+                            ImGui::PushID(row * 3 + 2);
+                            if (ImGui::SmallButton("D")) { idToDel = row; }
+                            ImGui::PopID();
+                        }
+                        if (idToDel) { planTrees.erase(planTrees.begin() + idToDel.value()); }
                     }
-                    if (idToDel) { planTrees.erase(planTrees.begin() + idToDel.value()); }
+                    clipper.End();
                 }
                 ImGui::EndTable();
 
