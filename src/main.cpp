@@ -9,10 +9,12 @@
 // - Introduction, links and more at the top of imgui.cpp
 
 
+#include <iostream>
 #include <optional>
-#include <stdio.h>
 #include <string>
+#include <thread>
 #include <vector>
+
 
 #include <ankerl/unordered_dense.h>
 #include <format>
@@ -53,40 +55,7 @@
 // Main code
 int main(int, char **) {
 
-    // ##################################
-    // ### Setting up data structures
-    // ##################################
-    std::string df{BOXPACKER_SAMPLE_INPUT};
-
-    auto const [shapes_ORIG, trees_ORIG] = incom::box_packer::get_integratedSampleData(df);
-
-    auto shps  = shapes_ORIG;
-    auto trees = trees_ORIG;
-
-    std::vector<std::string> treeLabels;
-
-    // Pre-computing the 'example' labels
-    for (size_t id = 0uz; auto const &oneTree : trees) {
-        treeLabels.push_back(std::format("{0:}: {1:}x{2:} (", id, oneTree.yDim, oneTree.xDim));
-
-        std::string aror{};
-
-        treeLabels.back().append(std::format("{:n}", oneTree.reqdShapes));
-        treeLabels.back().push_back(')');
-        ++id;
-    }
-
-    size_t oneShape_sideSize = 3uz; // Change later so that it can adjusted manually
-    auto   oneTree           = trees_ORIG.front();
-
-
-    std::vector<incom::box_packer::Tree> planTrees;
-
-
-    namespace incpack = incom::standard::solvers::packing;
-
-
-    // Setup SDL
+#pragma region SDL2_setup
 #ifdef _WIN32
     ::SetProcessDPIAware();
 #endif
@@ -130,6 +99,7 @@ int main(int, char **) {
 #ifdef SDL_HINT_IME_SHOW_UI
     SDL_SetHint(SDL_HINT_IME_SHOW_UI, "1");
 #endif
+
 
     // Create window with graphics context
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
@@ -183,6 +153,59 @@ int main(int, char **) {
     // Our state
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
+#pragma endregion SDL2_setup
+
+    // ##################################
+    // ### Setting up data structures
+    // ##################################
+
+    using namespace std::chrono_literals;
+    std::string df{BOXPACKER_SAMPLE_INPUT};
+
+    auto const [shapes_ORIG, trees_ORIG] = incom::box_packer::get_integratedSampleData(df);
+
+    auto shps  = shapes_ORIG;
+    auto trees = trees_ORIG;
+
+    std::vector<std::string> treeLabels;
+
+    // Pre-computing the 'example' labels
+    for (size_t id = 0uz; auto const &oneTree : trees) {
+        treeLabels.push_back(std::format("{0:}: {1:}x{2:} (", id, oneTree.yDim, oneTree.xDim));
+
+        std::string aror{};
+
+        treeLabels.back().append(std::format("{:n}", oneTree.reqdShapes));
+        treeLabels.back().push_back(')');
+        ++id;
+    }
+
+    size_t oneShape_sideSize = 3uz; // Change later so that it can adjusted manually
+    auto   oneTree           = trees_ORIG.front();
+
+
+    std::vector<incom::box_packer::Tree> planTrees;
+
+
+    namespace incpack = incom::standard::solvers::packing;
+
+    exec::static_thread_pool tPool_work{4};
+    exec::async_scope        asyncScope{};
+    auto                     sch_1 = tPool_work.get_scheduler();
+
+    auto one_iter = stdexec::schedule(sch_1) | stdexec::let_value([] {
+                        return stdexec::read_env(stdexec::get_stop_token) | stdexec::then([](auto tk) {
+                                   // cooperative cancellation points inside one iteration
+                                   for (int i = 0; i < 11; ++i) {
+                                       std::cout << "Iter: " << i << "\n";
+
+                                       std::this_thread::sleep_for(1ms);
+                                   }
+                                   //    if (tk.stop_requested()) { return; }
+                               });
+                    }) |
+                    exec::repeat_n(12);
+
 
     // ##################################
     // ### MAIN LOOP START
@@ -200,7 +223,7 @@ int main(int, char **) {
         auto [result] = stdexec::sync_wait(stdexec::just(42)).value(); // Start the work & wait for the result
         assert(result == 42);
 
-
+#pragma region SDL2_loopEventFrameHandling
         // Event handling
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
@@ -220,6 +243,7 @@ int main(int, char **) {
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
+#pragma endregion SDL2_loopEventFrameHandling
 
         {
             ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
@@ -240,69 +264,81 @@ int main(int, char **) {
                 ImGui::BeginChild("MainControls_window",
                                   ImVec2(ImGui::GetContentRegionAvail().x * 0.33f, 12 * 26.0f + 20.f),
                                   ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
-                ImGui::SeparatorText("Main Controls");
 
                 static size_t treeSelectedID = 0uz;
-                if (ImGui::BeginCombo("Select sample 🗑", treeLabels[treeSelectedID].data(), 0)) {
-                    static ImGuiTextFilter filter;
-                    if (ImGui::IsWindowAppearing()) {
-                        ImGui::SetKeyboardFocusHere();
-                        filter.Clear();
-                    }
-                    ImGui::SetNextItemShortcut(ImGuiMod_Ctrl | ImGuiKey_F);
-                    filter.Draw("##Filter", -FLT_MIN);
-
-                    for (int n = 0; n < treeLabels.size(); n++) {
-                        const bool is_selected = (treeSelectedID == n);
-                        if (filter.PassFilter(treeLabels[n].data())) {
-                            if (ImGui::Selectable(treeLabels[n].data(), is_selected)) { treeSelectedID = n; }
+                // ### Plan control
+                {
+                    ImGui::SeparatorText("Main Controls");
+                    if (ImGui::BeginCombo("Select sample 🗑", treeLabels[treeSelectedID].data(), 0)) {
+                        static ImGuiTextFilter filter;
+                        if (ImGui::IsWindowAppearing()) {
+                            ImGui::SetKeyboardFocusHere();
+                            filter.Clear();
                         }
+                        ImGui::SetNextItemShortcut(ImGuiMod_Ctrl | ImGuiKey_F);
+                        filter.Draw("##Filter", -FLT_MIN);
+
+                        for (int n = 0; n < treeLabels.size(); n++) {
+                            const bool is_selected = (treeSelectedID == n);
+                            if (filter.PassFilter(treeLabels[n].data())) {
+                                if (ImGui::Selectable(treeLabels[n].data(), is_selected)) { treeSelectedID = n; }
+                            }
+                        }
+                        ImGui::EndCombo();
                     }
-                    ImGui::EndCombo();
+
+                    if (ImGui::Button("Add to plan")) { planTrees.push_back(trees.at(treeSelectedID)); }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Add all to plan")) { planTrees.append_range(trees); }
+
+                    ImGui::Dummy(ImGui::GetItemRectSize());
                 }
 
-                if (ImGui::Button("Add to plan")) { planTrees.push_back(trees.at(treeSelectedID)); }
-                ImGui::SameLine();
-                if (ImGui::Button("Add all to plan")) { planTrees.append_range(trees); }
-
-                ImGui::Dummy(ImGui::GetItemRectSize());
-                ImGui::SeparatorText("Convenience helpers");
-                if (ImGui::Button("Selected sample -> custom")) {
-                    shps    = shapes_ORIG;
-                    oneTree = trees.at(treeSelectedID);
-                }
-                if (ImGui::Button("Clear plan")) { planTrees.clear(); }
-                ImGui::SameLine();
-                if (ImGui::Button("De-duplicate plan")) {
-
-                    ankerl::unordered_dense::set<incom::box_packer::Tree, incom::standard::hashing::XXH3Hasher> st;
-
-                    std::vector<char> deleteMarked;
-                    for (auto &oneTree : planTrees) {
-                        auto [_, inserted] = st.insert(oneTree);
-                        deleteMarked.push_back(not inserted);
+                // ### Convenience helpers
+                {
+                    ImGui::SeparatorText("Convenience helpers");
+                    if (ImGui::Button("Selected sample -> custom")) {
+                        shps    = shapes_ORIG;
+                        oneTree = trees.at(treeSelectedID);
                     }
-                    auto removed = std::ranges::remove_if(
-                        planTrees, std::identity{}, // predicate sees projected value (bool-like)
-                        [base = planTrees.data(), &deleteMarked](incom::box_packer::Tree const &t) {
-                            auto idx = static_cast<size_t>(&t - base);
-                            return deleteMarked[idx] != 0;
-                        });
-                    planTrees.erase(removed.begin(), removed.end());
-                }
+                    if (ImGui::Button("Clear plan")) { planTrees.clear(); }
+                    ImGui::SameLine();
+                    if (ImGui::Button("De-duplicate plan")) {
+
+                        ankerl::unordered_dense::set<incom::box_packer::Tree, incom::standard::hashing::XXH3Hasher> st;
+
+                        std::vector<char> deleteMarked;
+                        for (auto &oneTree : planTrees) {
+                            auto [_, inserted] = st.insert(oneTree);
+                            deleteMarked.push_back(not inserted);
+                        }
+                        auto removed = std::ranges::remove_if(
+                            planTrees, std::identity{}, // predicate sees projected value (bool-like)
+                            [base = planTrees.data(), &deleteMarked](incom::box_packer::Tree const &t) {
+                                auto idx = static_cast<size_t>(&t - base);
+                                return deleteMarked[idx] != 0;
+                            });
+                        planTrees.erase(removed.begin(), removed.end());
+                    }
 
 
-                ImGui::Dummy(ImGui::GetItemRectSize());
+                    // ### Job Control
+                    ImGui::Dummy(ImGui::GetItemRectSize());
+                }
 
-                ImGui::SeparatorText("Job control");
-                if (ImGui::Button("Execute plan")) {
-                    //  background_work.start_demo_job();
+                // ### Job control
+                {
+                    ImGui::SeparatorText("Job control");
+                    if (ImGui::Button("Execute plan")) {
+                        //  background_work.start_demo_job();
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Cancel all jobs")) {
+                        asyncScope.request_stop(); // cancel all jobs in this scope
+                        // stdexec::sync_wait(asyncScope.on_empty());
+                    }
+                    ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical, 4);
                 }
-                ImGui::SameLine();
-                if (ImGui::Button("Cancel all jobs")) {
-                    // background_work.cancel_all();
-                }
-                ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical, 4);
 
                 ImGui::EndChild();
             }
@@ -522,7 +558,7 @@ int main(int, char **) {
             ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
             ImGui::End();
         }
-
+#pragma region SDL2_Rendering
         // Rendering
         ImGui::Render();
         glViewport(0, 0, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
@@ -532,6 +568,7 @@ int main(int, char **) {
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         SDL_GL_SwapWindow(window);
         SDL_Delay(6);
+#pragma endregion SDL2_Rendering
     }
 #ifdef __EMSCRIPTEN__
     EMSCRIPTEN_MAINLOOP_END;
