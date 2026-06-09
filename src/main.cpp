@@ -9,9 +9,12 @@
 // - Introduction, links and more at the top of imgui.cpp
 
 
+#include <cstdint>
 #include <format>
 #include <incstd/core/solvers.hpp>
 #include <iostream>
+#include <limits>
+#include <mdspan>
 #include <memory>
 #include <optional>
 #include <ranges>
@@ -200,8 +203,10 @@ int main(int, char **) {
     auto shps  = shapes_ORIG;
     auto trees = trees_ORIG;
 
-    auto shpsForBoxPacker_view = std::views::transform(
-        shps.m_shapes, [](auto const &item) { return item.template conv_intoArr_bools<3uz, 3uz>(); });
+    auto shpsForBoxPacker_view = std::views::transform(shps.m_shapes, [](auto const &item) {
+        return incom::standard::solvers::packing::BoxPacker_2D<5>::calculate_rotFlipped(
+            item.template conv_intoArr_bools<3uz, 3uz>());
+    });
 
 
     // Pre-computing the 'example' labels
@@ -213,9 +218,8 @@ int main(int, char **) {
         ++id;
     }
 
-    size_t oneShape_sideSize = 3uz; // Change later so that it can adjusted manually
-    auto   oneTree           = trees_ORIG.front();
-
+    size_t                               oneShape_sideSize = 3uz; // Change later so that it can adjusted manually
+    auto                                 oneTree           = trees_ORIG.front();
     std::vector<incom::box_packer::Tree> planTrees;
 
 
@@ -235,17 +239,32 @@ int main(int, char **) {
     struct SolveResStore {
 
         decltype(trees_ORIG)                                                                      m_trees;
-        decltype(shapes_ORIG)                                                                     m_shps;
-        std::vector<std::tuple<size_t, incom::box_packer::BP_Pos, incom::box_packer::BP_PastRes>> vecOfRes;
+        std::vector<std::vector<std::array<std::array<bool, 3>, 3>>> const                        m_shpsAlterns;
+        std::vector<std::tuple<size_t, incom::box_packer::BP_Pos, incom::box_packer::BP_PastRes>> vecOfRes = {};
+
+        std::vector<std::vector<std::uint8_t>> m_reaAreaMaps;
+
+        std::vector<std::mdspan<std::uint8_t, std::dims<2>>> accs;
+
+
+        SolveResStore(decltype(trees_ORIG) const                                         &trees,
+                      std::vector<std::vector<std::array<std::array<bool, 3>, 3>>> const &shpsAlterns)
+            : m_trees(trees), m_shpsAlterns(shpsAlterns) {
+
+            for (auto const &oneTree : trees) {
+                m_reaAreaMaps.push_back(std::vector<std::uint8_t>((oneTree.yDim + 2) * (oneTree.xDim + 2), 0));
+                accs.push_back(std::mdspan(m_reaAreaMaps.back().data(), std::dims<2>{}));
+            }
+        }
     };
 
 
-    std::vector<std::tuple<std::unique_ptr<decltype(incom::standard::async::spawn(
-                               incom::box_packer::bp_asyncExecute, tPool_workSch, trees,
-                               std::vector(std::from_range, shpsForBoxPacker_view), incom::standard::async::Separator{},
-                               moodycamel::ReaderWriterQueue<
-                                   std::tuple<size_t, incom::box_packer::BP_Pos, incom::box_packer::BP_PastRes>>{}))>,
-                           SolveResStore>>
+    std::vector<std::pair<std::unique_ptr<decltype(incom::standard::async::spawn(
+                              incom::box_packer::bp_asyncExecute, tPool_workSch, trees,
+                              std::vector(std::from_range, shpsForBoxPacker_view), incom::standard::async::Separator{},
+                              moodycamel::ReaderWriterQueue<
+                                  std::tuple<size_t, incom::box_packer::BP_Pos, incom::box_packer::BP_PastRes>>{}))>,
+                          SolveResStore>>
         jobs;
 
 
