@@ -99,7 +99,7 @@ target_sources(boxpacker_showcase
 # )
 
 
-target_compile_features(boxpacker_showcase PRIVATE cxx_std_23)
+target_compile_features(boxpacker_showcase PRIVATE cxx_std_26)
 
 if(EMSCRIPTEN)
     set(boxpacker_showcase_EMSCRIPTEN_SHELL_FILE

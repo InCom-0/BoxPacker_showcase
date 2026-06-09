@@ -1,13 +1,23 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <concepts>
 #include <cstdint>
-#include <incstd/incstd_all.hpp>
 #include <mdspan>
-
+#include <utility>
 
 #include <boxpacker_private/incom_commons.h>
+#include <incstd/incstd_all.hpp>
+#include <readerwriterqueue.h>
+
+#include <exec/async_scope.hpp>
+#include <exec/execute.hpp>
+#include <exec/repeat_n.hpp>
+#include <exec/repeat_until.hpp>
+#include <exec/static_thread_pool.hpp>
+#include <exec/task.hpp>
+#include <stdexec/execution.hpp>
 
 
 namespace incom::box_packer {
@@ -31,7 +41,36 @@ struct Shape {
     auto get_viewInto(std::convertible_to<size_t> auto const... ids) const {
         return std::mdspan(m_data.data(), std::dextents<uint32_t, sizeof...(ids)>{});
     };
+
+
+    template <std::size_t... Extents>
+    requires(sizeof...(Extents) > 0)
+    auto conv_intoArr_bools() const {
+        return [&]<size_t... IDx>(std::index_sequence<IDx...>) {
+            return typename c_generateNestedArray<bool, Extents...>::type{(static_cast<bool>(m_data[IDx]))...};
+        }(std::make_index_sequence<(Extents * ...)>{});
+    };
+
+
+private:
+    template <typename T, size_t First, size_t... IDs>
+    struct c_generateNestedArray {
+        static_assert(false, "Cannot do this");
+    };
+
+    template <typename T, size_t First, size_t... IDs>
+    requires(sizeof...(IDs) > 0)
+    struct c_generateNestedArray<T, First, IDs...> {
+        using type = typename std::array<typename c_generateNestedArray<T, IDs...>::type, First>;
+    };
+
+    template <typename T, size_t First, size_t... IDs>
+    requires(sizeof...(IDs) == 0)
+    struct c_generateNestedArray<T, First, IDs...> {
+        using type = typename std::array<T, First>;
+    };
 };
+
 
 struct ShapesStorage {
     std::vector<Shape> m_shapes;
@@ -80,7 +119,7 @@ struct Tree {
         }
     }
 
-    bool operator==(Tree const&) const = default;
+    bool operator==(Tree const &) const = default;
 
     // ADL for hashing using XXH3Hasher
     friend constexpr void XXH3Hash(Tree const &input, XXH3_state_t *state) {
@@ -123,5 +162,41 @@ inline std::tuple<ShapesStorage, std::vector<Tree>> get_integratedSampleData(std
 
     return res;
 }
+
+
+namespace incpack = incom::standard::solvers::packing;
+using BP_Pos      = incpack::BoxPacker_2D<5>::Pos;
+using BP_PastRes  = incpack::BoxPacker_2D<5>::PastRes;
+
+inline constexpr auto bp_asyncExecute =
+    [](auto &sch, std::vector<incom::box_packer::Tree> const trees, auto const shpsToUse,
+       moodycamel::ReaderWriterQueue<std::tuple<size_t, incom::standard::solvers::packing::BoxPacker_2D<5>::Pos,
+                                                incom::standard::solvers::packing::BoxPacker_2D<5>::PastRes>> &q)
+    -> exec::basic_task<void, experimental::execution::__task::inline_task_context<void>> {
+    co_await stdexec::schedule(sch);
+    incom::standard::solvers::packing::BoxPacker_2D<5> solver(trees.front().yDim, trees.front().xDim, shpsToUse,
+                                                              trees.front().reqdShapes);
+
+    auto stopTokOpt = co_await stdexec::stopped_as_optional(stdexec::get_stop_token());
+
+    for (size_t treeID = 0uz; auto const &oneTree : trees) {
+        solver.reset_allButNotPastComputed(oneTree.yDim, oneTree.xDim, oneTree.reqdShapes);
+        solver.add_toFrontier_allCorners();
+
+        while (auto solvRes = solver.solve_oneStep()) {
+            if (stopTokOpt && stopTokOpt->stop_requested()) { co_await stdexec::just_stopped(); }
+
+            size_t sleepFor = 0;
+            auto   rrr      = std::tuple_cat(std::make_tuple(treeID), solvRes.value());
+            while (not q.try_enqueue(std::tuple_cat(std::make_tuple(treeID), solvRes.value()))) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(std::min(sleepFor++, 100uz)));
+            };
+        }
+
+        ++treeID;
+    }
+
+    co_return;
+};
 
 } // namespace incom::box_packer

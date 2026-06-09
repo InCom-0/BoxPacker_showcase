@@ -9,24 +9,30 @@
 // - Introduction, links and more at the top of imgui.cpp
 
 
+#include <format>
+#include <incstd/core/solvers.hpp>
 #include <iostream>
+#include <memory>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <thread>
 #include <vector>
 
 
 #include <ankerl/unordered_dense.h>
-#include <format>
 #include <imgui.h>
 #include <imgui_impl_opengl3.h>
 #include <imgui_impl_sdl2.h>
 #include <imgui_internal.h>
+#include <readerwriterqueue.h>
 
 #include <exec/async_scope.hpp>
 #include <exec/execute.hpp>
 #include <exec/repeat_n.hpp>
+#include <exec/repeat_until.hpp>
 #include <exec/static_thread_pool.hpp>
+#include <exec/task.hpp>
 #include <stdexec/execution.hpp>
 
 
@@ -49,8 +55,35 @@
 #include <boxpacker_private/bp_handling.hpp>
 #include <boxpacker_private/incom_commons.h>
 
+#include <boxpacker_private/incom_async.hpp>
+
 
 #define BOXPACKER_SAMPLE_INPUT "../../../data/BoxPacker_sample_input.txt"
+
+template <typename TaskT, typename S>
+struct Job {
+    exec::async_scope                  ascope = {};
+    moodycamel::ReaderWriterQueue<int> m_spsc_q;
+
+    Job(TaskT &&task, S const &schduler) {
+        ascope.spawn(stdexec::starts_on(schduler, std::move(task))
+
+                     //     | stdexec::then([](int v) noexcept {
+                     //      return v; // value available
+                     //  })
+                     //    |
+                     //   stdexec::upon_error([](std::exception_ptr) noexcept {
+                     //       // q.enqueue(-1); // error marker (choose your own protocol)
+                     //   }) |
+                     //   stdexec::upon_stopped([]() noexcept {
+                     //       // q.enqueue(-2); // stopped marker
+                     //   })
+        );
+    }
+
+    void request_stop() { ascope.request_stop(); }
+    void sync_wait() { stdexec::sync_wait(ascope.on_empty()); }
+};
 
 // Main code
 int main(int, char **) {
@@ -167,14 +200,14 @@ int main(int, char **) {
     auto shps  = shapes_ORIG;
     auto trees = trees_ORIG;
 
-    std::vector<std::string> treeLabels;
+    auto shpsForBoxPacker_view = std::views::transform(
+        shps.m_shapes, [](auto const &item) { return item.template conv_intoArr_bools<3uz, 3uz>(); });
+
 
     // Pre-computing the 'example' labels
+    std::vector<std::string> treeLabels;
     for (size_t id = 0uz; auto const &oneTree : trees) {
         treeLabels.push_back(std::format("{0:}: {1:}x{2:} (", id, oneTree.yDim, oneTree.xDim));
-
-        std::string aror{};
-
         treeLabels.back().append(std::format("{:n}", oneTree.reqdShapes));
         treeLabels.back().push_back(')');
         ++id;
@@ -183,28 +216,37 @@ int main(int, char **) {
     size_t oneShape_sideSize = 3uz; // Change later so that it can adjusted manually
     auto   oneTree           = trees_ORIG.front();
 
-
     std::vector<incom::box_packer::Tree> planTrees;
 
 
     namespace incpack = incom::standard::solvers::packing;
 
     exec::static_thread_pool tPool_work{4};
-    exec::async_scope        asyncScope{};
-    auto                     sch_1 = tPool_work.get_scheduler();
+    auto                     tPool_workSch = tPool_work.get_scheduler();
 
-    auto one_iter = stdexec::schedule(sch_1) | stdexec::let_value([] {
-                        return stdexec::read_env(stdexec::get_stop_token) | stdexec::then([](auto tk) {
-                                   // cooperative cancellation points inside one iteration
-                                   for (int i = 0; i < 11; ++i) {
-                                       std::cout << "Iter: " << i << "\n";
 
-                                       std::this_thread::sleep_for(1ms);
-                                   }
-                                   //    if (tk.stop_requested()) { return; }
-                               });
-                    }) |
-                    exec::repeat_n(12);
+    auto job_1 = incom::standard::async::spawn(
+        incom::box_packer::bp_asyncExecute, tPool_workSch, trees, std::vector(std::from_range, shpsForBoxPacker_view),
+        incom::standard::async::Separator{},
+        moodycamel::ReaderWriterQueue<std::tuple<size_t, incom::box_packer::BP_Pos, incom::box_packer::BP_PastRes>>(
+            1024));
+
+
+    struct SolveResStore {
+
+        decltype(trees_ORIG)                                                                      m_trees;
+        decltype(shapes_ORIG)                                                                     m_shps;
+        std::vector<std::tuple<size_t, incom::box_packer::BP_Pos, incom::box_packer::BP_PastRes>> vecOfRes;
+    };
+
+
+    std::vector<std::tuple<std::unique_ptr<decltype(incom::standard::async::spawn(
+                               incom::box_packer::bp_asyncExecute, tPool_workSch, trees,
+                               std::vector(std::from_range, shpsForBoxPacker_view), incom::standard::async::Separator{},
+                               moodycamel::ReaderWriterQueue<
+                                   std::tuple<size_t, incom::box_packer::BP_Pos, incom::box_packer::BP_PastRes>>{}))>,
+                           SolveResStore>>
+        jobs;
 
 
     // ##################################
@@ -220,8 +262,7 @@ int main(int, char **) {
     while (! done)
 #endif
     {
-        auto [result] = stdexec::sync_wait(stdexec::just(42)).value(); // Start the work & wait for the result
-        assert(result == 42);
+
 
 #pragma region SDL2_loopEventFrameHandling
         // Event handling
@@ -334,7 +375,7 @@ int main(int, char **) {
                     }
                     ImGui::SameLine();
                     if (ImGui::Button("Cancel all jobs")) {
-                        asyncScope.request_stop(); // cancel all jobs in this scope
+                        // cancel all jobs in this scope ... need to somehow iterate
                         // stdexec::sync_wait(asyncScope.on_empty());
                     }
                     ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical, 4);
