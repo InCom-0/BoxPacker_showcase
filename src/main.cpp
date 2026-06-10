@@ -242,20 +242,27 @@ int main(int, char **) {
         std::vector<std::vector<std::array<std::array<bool, 3>, 3>>> const                        m_shpsAlterns;
         std::vector<std::tuple<size_t, incom::box_packer::BP_Pos, incom::box_packer::BP_PastRes>> vecOfRes = {};
 
-        std::vector<std::vector<std::uint8_t>> m_reaAreaMaps;
-
+        std::vector<std::vector<std::uint8_t>>               m_reaAreaMaps;
         std::vector<std::mdspan<std::uint8_t, std::dims<2>>> accs;
 
+        std::vector<ImU32> colorsToUse;
 
         SolveResStore(decltype(trees_ORIG) const                                         &trees,
-                      std::vector<std::vector<std::array<std::array<bool, 3>, 3>>> const &shpsAlterns)
-            : m_trees(trees), m_shpsAlterns(shpsAlterns) {
-
-            for (auto const &oneTree : trees) {
-                m_reaAreaMaps.push_back(std::vector<std::uint8_t>((oneTree.yDim + 2) * (oneTree.xDim + 2), 0));
-                accs.push_back(std::mdspan(m_reaAreaMaps.back().data(), std::dims<2>{}));
-            }
-        }
+                      std::vector<std::vector<std::array<std::array<bool, 3>, 3>>> const &shpsAlterns,
+                      std::array<incom::standard::color::inc_sRGB, 256> const            &palette =
+                          incom::standard::console::color_schemes::windows_terminal::dimidium256.palette)
+            : m_trees(trees), m_shpsAlterns(shpsAlterns),
+              m_reaAreaMaps(std::from_range, std::views::transform(trees,
+                                                                   [](auto const &item) {
+                                                                       return std::vector<std::uint8_t>(
+                                                                           (item.yDim + 2) * (item.xDim + 2), 0);
+                                                                   })),
+              accs(std::from_range,
+                   std::views::transform(m_reaAreaMaps,
+                                         [](auto &oneMap) { return std::mdspan(oneMap.data(), std::dims<2>{}); })),
+              colorsToUse(std::from_range, std::views::transform(palette, [](auto const &oneCol) {
+                              return ImU32(ImColor(oneCol.r, oneCol.g, oneCol.b));
+                          })) {}
     };
 
 
@@ -390,7 +397,24 @@ int main(int, char **) {
                 {
                     ImGui::SeparatorText("Job control");
                     if (ImGui::Button("Execute plan")) {
-                        //  background_work.start_demo_job();
+                        auto pr = std::make_pair(
+                            incom::standard::async::spawn_ptr(
+                                incom::box_packer::bp_asyncExecute, tPool_workSch, trees,
+                                std::vector(std::from_range, shpsForBoxPacker_view),
+                                incom::standard::async::Separator{},
+                                moodycamel::ReaderWriterQueue<
+                                    std::tuple<size_t, incom::box_packer::BP_Pos, incom::box_packer::BP_PastRes>>{}),
+                            SolveResStore{trees, std::vector(std::from_range, shpsForBoxPacker_view)});
+
+                        jobs.push_back(std::make_pair(
+                            incom::standard::async::spawn_ptr(
+                                incom::box_packer::bp_asyncExecute, tPool_workSch, trees,
+                                std::vector(std::from_range, shpsForBoxPacker_view),
+                                incom::standard::async::Separator{},
+                                moodycamel::ReaderWriterQueue<
+                                    std::tuple<size_t, incom::box_packer::BP_Pos, incom::box_packer::BP_PastRes>>{}),
+                            SolveResStore{trees, std::vector(std::from_range, shpsForBoxPacker_view)}));
+                        // background_work.start_demo_job();
                     }
                     ImGui::SameLine();
                     if (ImGui::Button("Cancel all jobs")) {
@@ -433,7 +457,7 @@ int main(int, char **) {
 
                             // Shape table begin
                             ImGui::PushID(r * rowCount + c);
-                            ImGui::BeginTable("MyTable", 3,
+                            ImGui::BeginTable("OneShape_table", 3,
                                               ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV |
                                                   ImGuiTableFlags_BordersH | ImGuiTableFlags_SizingFixedSame |
                                                   ImGuiTableFlags_NoHostExtendX | ImGuiTableFlags_NoPadOuterX |
@@ -602,11 +626,6 @@ int main(int, char **) {
             // ##################################
             // ### Current runners
             // ##################################
-            struct RunnerResult {
-                incom::box_packer::Shape m_area;
-            };
-
-            static std::vector<RunnerResult> runRess;
 
             ImGui::SeparatorText("Current runners");
 
