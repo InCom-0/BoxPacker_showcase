@@ -397,17 +397,8 @@ int main(int, char **) {
                 {
                     ImGui::SeparatorText("Job control");
                     if (ImGui::Button("Execute plan")) {
-                        auto pr = std::make_pair(
-                            incom::standard::async::spawn_ptr(
-                                incom::box_packer::bp_asyncExecute, tPool_workSch, trees,
-                                std::vector(std::from_range, shpsForBoxPacker_view),
-                                incom::standard::async::Separator{},
-                                moodycamel::ReaderWriterQueue<
-                                    std::tuple<size_t, incom::box_packer::BP_Pos, incom::box_packer::BP_PastRes>>{}),
-                            SolveResStore{trees, std::vector(std::from_range, shpsForBoxPacker_view)});
-
                         jobs.push_back(std::make_pair(
-                            incom::standard::async::spawn_ptr(
+                            incom::standard::async::spawn_uptr(
                                 incom::box_packer::bp_asyncExecute, tPool_workSch, trees,
                                 std::vector(std::from_range, shpsForBoxPacker_view),
                                 incom::standard::async::Separator{},

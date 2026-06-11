@@ -24,7 +24,7 @@ struct Separator {};
 template <typename CORO, typename... Tail>
 auto spawn(CORO, Tail &&...tail);
 template <typename CORO, typename... Tail>
-auto spawn_ptr(CORO, Tail &&...tail);
+auto spawn_uptr(CORO, Tail &&...tail);
 
 
 namespace detail {
@@ -64,7 +64,7 @@ public:
     template <typename CORO, typename... Tail>
     friend auto incom::standard::async::spawn(CORO, Tail &&...tail);
     template <typename CORO, typename... Tail>
-    friend auto incom::standard::async::spawn_ptr(CORO, Tail &&...tail);
+    friend auto incom::standard::async::spawn_uptr(CORO, Tail &&...tail);
 
     template <typename CORO, typename... Tail>
     explicit Job_PRE(CORO, Tail &&...tail)
@@ -81,6 +81,9 @@ private:
           m_ret(m_ascope.spawn_future(CORO{}(tail...[I1]..., std::get<I2>(m_qs)...))) {}
 };
 
+// ############################################
+// Deduction and helper machinery
+// ############################################
 template <class F, class... Args>
 using lambda_call_return_t = std::invoke_result_t<F &, Args...>;
 
@@ -116,11 +119,10 @@ Job_PRE(CORO, std::index_sequence<I1...>, std::index_sequence<I2...>, Tail &&...
 template <typename CORO, typename... Tail>
 auto spawn(CORO, Tail &&...tail) {
     return detail::Job_PRE(CORO{}, std::make_index_sequence<detail::separator_index_v<Tail...>>{},
-                                          std::make_index_sequence<detail::queue_arg_count_v<Tail...>>{},
-                                          std::forward<Tail>(tail)...);
+                           std::make_index_sequence<detail::queue_arg_count_v<Tail...>>{}, std::forward<Tail>(tail)...);
 }
 template <typename CORO, typename... Tail>
-auto spawn_ptr(CORO, Tail &&...tail) {
+auto spawn_uptr(CORO, Tail &&...tail) {
     using JobT = detail::job_pre_from_factory<CORO, Tail...>;
     return std::unique_ptr<JobT>(new JobT(CORO{}, std::make_index_sequence<detail::separator_index_v<Tail...>>{},
                                           std::make_index_sequence<detail::queue_arg_count_v<Tail...>>{},
