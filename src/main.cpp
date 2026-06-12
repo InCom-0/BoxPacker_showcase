@@ -63,31 +63,6 @@
 
 #define BOXPACKER_SAMPLE_INPUT "../../../data/BoxPacker_sample_input.txt"
 
-template <typename TaskT, typename S>
-struct Job {
-    exec::async_scope                  ascope = {};
-    moodycamel::ReaderWriterQueue<int> m_spsc_q;
-
-    Job(TaskT &&task, S const &schduler) {
-        ascope.spawn(stdexec::starts_on(schduler, std::move(task))
-
-                     //     | stdexec::then([](int v) noexcept {
-                     //      return v; // value available
-                     //  })
-                     //    |
-                     //   stdexec::upon_error([](std::exception_ptr) noexcept {
-                     //       // q.enqueue(-1); // error marker (choose your own protocol)
-                     //   }) |
-                     //   stdexec::upon_stopped([]() noexcept {
-                     //       // q.enqueue(-2); // stopped marker
-                     //   })
-        );
-    }
-
-    void request_stop() { ascope.request_stop(); }
-    void sync_wait() { stdexec::sync_wait(ascope.on_empty()); }
-};
-
 // Main code
 int main(int, char **) {
 
@@ -229,18 +204,12 @@ int main(int, char **) {
     auto                     tPool_workSch = tPool_work.get_scheduler();
 
 
-    auto job_1 = incom::standard::async::spawn(
-        incom::box_packer::bp_asyncExecute, tPool_workSch, trees, std::vector(std::from_range, shpsForBoxPacker_view),
-        incom::standard::async::Separator{},
-        moodycamel::ReaderWriterQueue<std::tuple<size_t, incom::box_packer::BP_Pos, incom::box_packer::BP_PastRes>>(
-            1024));
-
-
     struct SolveResStore {
 
-        decltype(trees_ORIG)                                                                      m_trees;
-        std::vector<std::vector<std::array<std::array<bool, 3>, 3>>> const                        m_shpsAlterns;
-        std::vector<std::tuple<size_t, incom::box_packer::BP_Pos, incom::box_packer::BP_PastRes>> vecOfRes = {};
+        decltype(trees_ORIG)                                                                           m_trees;
+        std::vector<std::vector<std::array<std::array<bool, 3>, 3>>> const                             m_shpsAlterns;
+        std::vector<std::vector<std::tuple<incom::box_packer::BP_Pos, incom::box_packer::BP_PastRes>>> vecOfRes = {};
+        std::vector<size_t>                                                                            endOfVisible;
 
         std::vector<std::vector<std::uint8_t>>               m_reaAreaMaps;
         std::vector<std::mdspan<std::uint8_t, std::dims<2>>> accs;
@@ -251,18 +220,37 @@ int main(int, char **) {
                       std::vector<std::vector<std::array<std::array<bool, 3>, 3>>> const &shpsAlterns,
                       std::array<incom::standard::color::inc_sRGB, 256> const            &palette =
                           incom::standard::console::color_schemes::windows_terminal::dimidium256.palette)
-            : m_trees(trees), m_shpsAlterns(shpsAlterns),
+            : m_trees(trees), m_shpsAlterns(shpsAlterns), vecOfRes(trees.size()), endOfVisible(trees.size(), 0uz),
               m_reaAreaMaps(std::from_range, std::views::transform(trees,
                                                                    [](auto const &item) {
                                                                        return std::vector<std::uint8_t>(
                                                                            (item.yDim + 2) * (item.xDim + 2), 0);
                                                                    })),
               accs(std::from_range,
-                   std::views::transform(m_reaAreaMaps,
-                                         [](auto &oneMap) { return std::mdspan(oneMap.data(), std::dims<2>{}); })),
+                   std::views::transform(std::views::zip(m_reaAreaMaps, m_trees),
+                                         [](auto const &onePair) {
+                                             return std::mdspan(std::get<0>(onePair).data(),
+                                                                std::dims<2>{std::get<1>(onePair).yDim + 2,
+                                                                             std::get<1>(onePair).xDim + 2});
+                                         })),
               colorsToUse(std::from_range, std::views::transform(palette, [](auto const &oneCol) {
                               return ImU32(ImColor(oneCol.r, oneCol.g, oneCol.b));
                           })) {}
+
+
+        void update_oneShape(size_t const resID, size_t const vecOfRes_ID) {
+            auto const &[itemPos, itemPR] = vecOfRes.at(resID).at(vecOfRes_ID);
+            for (size_t r = itemPos.y + 1; r < itemPos.y + 1 + 3; ++r) {
+                for (size_t c = itemPos.x + 1; c < itemPos.x + 1 + 3; ++c) {
+                    if (m_shpsAlterns.at(itemPR.ol_shpID.shpID)
+                            .at(itemPR.ol_shpID.alternID)
+                            .at(r - (itemPos.y + 1))
+                            .at(c - (itemPos.x + 1))) {
+                        accs.at(resID).at(r, c) = itemPR.ol_shpID.shpID + 1;
+                    }
+                }
+            }
+        }
     };
 
 
@@ -278,7 +266,11 @@ int main(int, char **) {
     // ##################################
     // ### MAIN LOOP START
     // ##################################
-    bool done = false;
+    bool done                = false;
+    bool waitOnCancelledJobs = false;
+
+    static std::optional<size_t> sel_jobID = std::nullopt;
+    static std::optional<size_t> sel_resID = std::nullopt;
 #ifdef __EMSCRIPTEN__
     // For an Emscripten build we are disabling file-system access, so let's not attempt to do a fopen() of the
     // imgui.ini file. You may manually call LoadIniSettingsFromMemory() to load settings from your own storage.
@@ -288,6 +280,28 @@ int main(int, char **) {
     while (! done)
 #endif
     {
+        // Handle messages from all jobs and store them locally in main thread
+        for (auto &[jr, resStore] : jobs) {
+            std::tuple<size_t, incom::box_packer::BP_Pos, incom::box_packer::BP_PastRes> dq;
+            while (std::get<0>(jr->m_qs).peek() != nullptr) {
+                auto const &[resID, itemPos, itemPR] = *std::get<0>(jr->m_qs).peek();
+                resStore.vecOfRes.at(resID).push_back({itemPos, itemPR});
+                resStore.endOfVisible.at(resID) = resStore.vecOfRes.at(resID).size();
+
+                resStore.update_oneShape(resID, resStore.vecOfRes.at(resID).size() - 1);
+                std::get<0>(jr->m_qs).pop();
+            }
+        }
+
+        // All jobs were cancelled
+        if (waitOnCancelledJobs) {
+            // If cancal of all jobs requested then we wait for them to sync
+            for (auto const &[job, _] : jobs) { stdexec::sync_wait(job->m_ascope.on_empty()); }
+            waitOnCancelledJobs = false;
+            jobs.clear();
+            sel_jobID = std::nullopt;
+            sel_resID = std::nullopt;
+        }
 
 
 #pragma region SDL2_loopEventFrameHandling
@@ -354,6 +368,7 @@ int main(int, char **) {
                         ImGui::EndCombo();
                     }
 
+
                     if (ImGui::Button("Add to plan")) { planTrees.push_back(trees.at(treeSelectedID)); }
                     ImGui::SameLine();
                     if (ImGui::Button("Add all to plan")) { planTrees.append_range(trees); }
@@ -399,19 +414,23 @@ int main(int, char **) {
                     if (ImGui::Button("Execute plan")) {
                         jobs.push_back(std::make_pair(
                             incom::standard::async::spawn_uptr(
-                                incom::box_packer::bp_asyncExecute, tPool_workSch, trees,
+                                incom::box_packer::bp_asyncExecute, tPool_workSch, planTrees,
                                 std::vector(std::from_range, shpsForBoxPacker_view),
                                 incom::standard::async::Separator{},
                                 moodycamel::ReaderWriterQueue<
-                                    std::tuple<size_t, incom::box_packer::BP_Pos, incom::box_packer::BP_PastRes>>{}),
-                            SolveResStore{trees, std::vector(std::from_range, shpsForBoxPacker_view)}));
+                                    std::tuple<size_t, incom::box_packer::BP_Pos, incom::box_packer::BP_PastRes>>{
+                                    1024}),
+                            SolveResStore(planTrees, std::vector(std::from_range, shpsForBoxPacker_view))));
                         // background_work.start_demo_job();
                     }
                     ImGui::SameLine();
                     if (ImGui::Button("Cancel all jobs")) {
+                        waitOnCancelledJobs = true;
+                        for (auto const &[job, _] : jobs) { job->m_ascope.request_stop(); }
                         // cancel all jobs in this scope ... need to somehow iterate
                         // stdexec::sync_wait(asyncScope.on_empty());
                     }
+
                     ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical, 4);
                 }
 
@@ -448,52 +467,54 @@ int main(int, char **) {
 
                             // Shape table begin
                             ImGui::PushID(r * rowCount + c);
-                            ImGui::BeginTable("OneShape_table", 3,
-                                              ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV |
-                                                  ImGuiTableFlags_BordersH | ImGuiTableFlags_SizingFixedSame |
-                                                  ImGuiTableFlags_NoHostExtendX | ImGuiTableFlags_NoPadOuterX |
-                                                  ImGuiTableFlags_NoPadInnerX,
-                                              ImVec2(0.0f, 0.0f));
+                            if (ImGui::BeginTable("OneShape_table", 3,
+                                                  ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV |
+                                                      ImGuiTableFlags_BordersH | ImGuiTableFlags_SizingFixedSame |
+                                                      ImGuiTableFlags_NoHostExtendX | ImGuiTableFlags_NoPadOuterX |
+                                                      ImGuiTableFlags_NoPadInnerX,
+                                                  ImVec2(0.0f, 0.0f))) {
 
 
-                            for (int c = 0; c < 3; ++c) {
-                                ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 26.0f);
-                            };
+                                for (int c = 0; c < 3; ++c) {
+                                    ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 26.0f);
+                                };
 
-                            auto spn = shps.m_shapes.at(curShpIDX).get_viewInto<3uz, 3uz>();
-                            // auto spn = shps.m_shapes.at(curShpIDX).get_viewInto(3uz, 3uz);
-                            for (int tRow = 0; tRow < 3; tRow++) {
-                                ImGui::TableNextRow(ImGuiTableRowFlags_None, 26);
-                                for (int tCol = 0; tCol < 3; tCol++) {
+                                auto spn = shps.m_shapes.at(curShpIDX).get_viewInto<3uz, 3uz>();
+                                // auto spn = shps.m_shapes.at(curShpIDX).get_viewInto(3uz, 3uz);
+                                for (int tRow = 0; tRow < 3; tRow++) {
+                                    ImGui::TableNextRow(ImGuiTableRowFlags_None, 26);
+                                    for (int tCol = 0; tCol < 3; tCol++) {
 
-                                    ImGui::PushID(tRow * 3 + tCol);
-                                    ImGui::TableSetColumnIndex(tCol);
-                                    if (ImGui::Selectable("", false)) {
-                                        spn[tRow, tCol] = not static_cast<bool>(spn[tRow, tCol]);
-                                    }
-
-                                    ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg,
-                                                           ImGui::GetColorU32(spn[tRow, tCol] != 0
-                                                                                  ? ImVec4(0.0f, 1.0f, 0.0f, 0.65f)
-                                                                                  : ImVec4(0.0f, 0.0f, 0.0f, 0.65f)));
-
-                                    // Drag and drop functionality (swapping of shapes)
-                                    if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
-                                        ImGui::SetDragDropPayload("OneShape", &curShpIDX, sizeof(size_t));
-                                        ImGui::EndDragDropSource();
-                                    }
-                                    if (ImGui::BeginDragDropTarget()) {
-                                        if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("OneShape")) {
-                                            IM_ASSERT(payload->DataSize == sizeof(size_t));
-                                            size_t const payload_n = *(const size_t *)payload->Data;
-                                            if (payload_n != curShpIDX) { shps.swap(payload_n, curShpIDX); }
+                                        ImGui::PushID(tRow * 3 + tCol);
+                                        ImGui::TableSetColumnIndex(tCol);
+                                        if (ImGui::Selectable("", false)) {
+                                            spn[tRow, tCol] = not static_cast<bool>(spn[tRow, tCol]);
                                         }
-                                        ImGui::EndDragDropTarget();
+
+                                        ImGui::TableSetBgColor(
+                                            ImGuiTableBgTarget_CellBg,
+                                            ImGui::GetColorU32(spn[tRow, tCol] != 0 ? ImVec4(0.0f, 1.0f, 0.0f, 0.65f)
+                                                                                    : ImVec4(0.0f, 0.0f, 0.0f, 0.65f)));
+
+                                        // Drag and drop functionality (swapping of shapes)
+                                        if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
+                                            ImGui::SetDragDropPayload("OneShape", &curShpIDX, sizeof(size_t));
+                                            ImGui::EndDragDropSource();
+                                        }
+                                        if (ImGui::BeginDragDropTarget()) {
+                                            if (const ImGuiPayload *payload =
+                                                    ImGui::AcceptDragDropPayload("OneShape")) {
+                                                IM_ASSERT(payload->DataSize == sizeof(size_t));
+                                                size_t const payload_n = *(const size_t *)payload->Data;
+                                                if (payload_n != curShpIDX) { shps.swap(payload_n, curShpIDX); }
+                                            }
+                                            ImGui::EndDragDropTarget();
+                                        }
+                                        ImGui::PopID();
                                     }
-                                    ImGui::PopID();
                                 }
+                                ImGui::EndTable();
                             }
-                            ImGui::EndTable();
                             ImGui::PopID();
 
                             ++curShpIDX;
@@ -607,8 +628,8 @@ int main(int, char **) {
                         if (idToDel) { planTrees.erase(planTrees.begin() + idToDel.value()); }
                     }
                     clipper.End();
+                    ImGui::EndTable();
                 }
-                ImGui::EndTable();
 
 
                 ImGui::EndChild();
@@ -617,9 +638,71 @@ int main(int, char **) {
             // ##################################
             // ### Current runners
             // ##################################
+            {
+                ImGui::SeparatorText("Current runners");
 
-            ImGui::SeparatorText("Current runners");
+                if (ImGui::BeginCombo(
+                        "Select Job",
+                        sel_jobID ? std::format("Job {}", sel_jobID.value()).data() : std::string("").data(), 0)) {
 
+                    if (ImGui::Selectable("##", not sel_jobID)) { sel_jobID = std::nullopt; }
+
+                    for (size_t n = 0; n < jobs.size(); n++) {
+                        bool const selected = sel_jobID ? sel_jobID.value() == n : false;
+                        if (ImGui::Selectable(std::format("Job {}", n).data(), selected)) { sel_jobID = n; }
+                    }
+                    ImGui::EndCombo();
+                }
+
+                ImGui::SameLine();
+
+                if (ImGui::BeginCombo(
+                        "Select result",
+                        sel_resID ? std::format("Result {}", sel_resID.value()).data() : std::string("").data(), 0)) {
+
+                    if (ImGui::Selectable("##", not sel_resID)) { sel_resID = std::nullopt; }
+
+                    if (sel_jobID) {
+                        for (size_t n = 0; n < jobs.at(sel_jobID.value()).second.vecOfRes.size(); n++) {
+                            bool const selected = sel_resID ? sel_resID.value() == n : false;
+                            if (ImGui::Selectable(std::format("Task {}", n).data(), selected)) { sel_resID = n; }
+                        }
+                    }
+
+                    ImGui::EndCombo();
+                }
+
+                if (sel_jobID && sel_resID) {
+
+                    auto const &selJobSolvRes = std::get<1>(jobs.at(sel_jobID.value()));
+                    if (ImGui::BeginTable("OneResTable", selJobSolvRes.m_trees.at(sel_resID.value()).xDim,
+                                          ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV |
+                                              ImGuiTableFlags_BordersH | ImGuiTableFlags_SizingFixedSame |
+                                              ImGuiTableFlags_NoHostExtendX | ImGuiTableFlags_NoPadOuterX |
+                                              ImGuiTableFlags_NoPadInnerX,
+                                          ImVec2(0.0f, 0.0f))) {
+
+                        // Setup each column
+                        for (int c = 0; c < selJobSolvRes.m_trees.at(sel_resID.value()).xDim; ++c) {
+                            ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 16.0f);
+                        };
+
+                        // Draw each square (ie. set the right background color)
+                        for (int tRow = 1; tRow < selJobSolvRes.m_trees.at(sel_resID.value()).yDim + 1; tRow++) {
+                            ImGui::TableNextRow(ImGuiTableRowFlags_None, 16.0f);
+                            for (int tCol = 1; tCol < selJobSolvRes.m_trees.at(sel_resID.value()).xDim + 1; tCol++) {
+
+                                ImGui::TableSetColumnIndex(tCol - 1);
+
+                                ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg,
+                                                       selJobSolvRes.colorsToUse.at(
+                                                           selJobSolvRes.accs.at(sel_resID.value()).at(tRow, tCol)));
+                            }
+                        }
+                        ImGui::EndTable();
+                    }
+                }
+            }
             // ##################################
             // ### Logging
             // ##################################

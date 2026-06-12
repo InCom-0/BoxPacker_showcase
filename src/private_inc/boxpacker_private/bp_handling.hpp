@@ -5,6 +5,7 @@
 #include <concepts>
 #include <cstdint>
 #include <mdspan>
+#include <stdexec/__detail/__execution_fwd.hpp>
 #include <utility>
 
 #include <boxpacker_private/incom_commons.h>
@@ -190,6 +191,7 @@ inline constexpr auto bp_asyncExecute =
             auto   rrr      = std::tuple_cat(std::make_tuple(treeID), solvRes.value());
             while (not q.try_enqueue(std::tuple_cat(std::make_tuple(treeID), solvRes.value()))) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(std::min(sleepFor++, 100uz)));
+                if (sleepFor > 1000) { co_await stdexec::just_error(99); }
             };
         }
 
