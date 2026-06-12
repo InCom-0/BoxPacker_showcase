@@ -9,8 +9,10 @@
 // - Introduction, links and more at the top of imgui.cpp
 
 
+#include <cstddef>
 #include <cstdint>
 #include <format>
+#include <incstd/console/colorschemes.hpp>
 #include <incstd/core/solvers.hpp>
 #include <iostream>
 #include <limits>
@@ -251,6 +253,37 @@ int main(int, char **) {
                 }
             }
         }
+
+        void remove_oneShape(size_t const resID, size_t const vecOfRes_ID) {
+            auto const &[itemPos, itemPR] = vecOfRes.at(resID).at(vecOfRes_ID);
+            for (size_t r = itemPos.y + 1; r < itemPos.y + 1 + 3; ++r) {
+                for (size_t c = itemPos.x + 1; c < itemPos.x + 1 + 3; ++c) {
+                    if (m_shpsAlterns.at(itemPR.ol_shpID.shpID)
+                            .at(itemPR.ol_shpID.alternID)
+                            .at(r - (itemPos.y + 1))
+                            .at(c - (itemPos.x + 1))) {
+                        accs.at(resID).at(r, c) = 0;
+                    }
+                }
+            }
+        }
+
+        bool moveInTime_area(size_t const resID, int const moveInTimeBy) {
+            if ((endOfVisible.at(resID) + moveInTimeBy) < 0 or
+                (endOfVisible.at(resID) + moveInTimeBy) >= vecOfRes.at(resID).size()) {
+                return false;
+            }
+
+            int const end = (endOfVisible.at(resID) + moveInTimeBy);
+            if (moveInTimeBy < 0) {
+                for (int i = endOfVisible.at(resID) - 1; i >= end; --i) { remove_oneShape(resID, i); }
+            }
+            else {
+                for (int i = endOfVisible.at(resID); i < end; ++i) { update_oneShape(resID, i); }
+            }
+
+            return true;
+        }
     };
 
 
@@ -268,6 +301,7 @@ int main(int, char **) {
     // ##################################
     bool done                = false;
     bool waitOnCancelledJobs = false;
+    bool waitOnStoppedJobs   = false;
 
     static std::optional<size_t> sel_jobID = std::nullopt;
     static std::optional<size_t> sel_resID = std::nullopt;
@@ -301,6 +335,13 @@ int main(int, char **) {
             jobs.clear();
             sel_jobID = std::nullopt;
             sel_resID = std::nullopt;
+        }
+
+        // All jobs were stopped
+        if (waitOnStoppedJobs) {
+            // If cancal of all jobs requested then we wait for them to sync
+            for (auto const &[job, _] : jobs) { stdexec::sync_wait(job->m_ascope.on_empty()); }
+            waitOnStoppedJobs = false;
         }
 
 
@@ -419,16 +460,24 @@ int main(int, char **) {
                                 incom::standard::async::Separator{},
                                 moodycamel::ReaderWriterQueue<
                                     std::tuple<size_t, incom::box_packer::BP_Pos, incom::box_packer::BP_PastRes>>{
-                                    1024}),
+                                    4096}),
                             SolveResStore(planTrees, std::vector(std::from_range, shpsForBoxPacker_view))));
-                        // background_work.start_demo_job();
+
+                        sel_jobID = jobs.size() - 1;
                     }
+
                     ImGui::SameLine();
                     if (ImGui::Button("Cancel all jobs")) {
                         waitOnCancelledJobs = true;
                         for (auto const &[job, _] : jobs) { job->m_ascope.request_stop(); }
                         // cancel all jobs in this scope ... need to somehow iterate
                         // stdexec::sync_wait(asyncScope.on_empty());
+                    }
+
+                    ImGui::SameLine();
+                    if (ImGui::Button("Stop all jobs")) {
+                        waitOnStoppedJobs = true;
+                        for (auto const &[job, _] : jobs) { job->m_ascope.request_stop(); }
                     }
 
                     ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical, 4);
@@ -639,67 +688,114 @@ int main(int, char **) {
             // ### Current runners
             // ##################################
             {
+                static int rewindSlider = 0;
+
                 ImGui::SeparatorText("Current runners");
+                {
+                    ImGui::BeginGroup();
+                    ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 0.15f);
+                    if (ImGui::BeginCombo(
+                            "##SelectJob",
+                            sel_jobID ? std::format("Job {}", sel_jobID.value()).data() : std::string("").data(), 0)) {
 
-                if (ImGui::BeginCombo(
-                        "Select Job",
-                        sel_jobID ? std::format("Job {}", sel_jobID.value()).data() : std::string("").data(), 0)) {
-
-                    if (ImGui::Selectable("##", not sel_jobID)) { sel_jobID = std::nullopt; }
-
-                    for (size_t n = 0; n < jobs.size(); n++) {
-                        bool const selected = sel_jobID ? sel_jobID.value() == n : false;
-                        if (ImGui::Selectable(std::format("Job {}", n).data(), selected)) { sel_jobID = n; }
-                    }
-                    ImGui::EndCombo();
-                }
-
-                ImGui::SameLine();
-
-                if (ImGui::BeginCombo(
-                        "Select result",
-                        sel_resID ? std::format("Result {}", sel_resID.value()).data() : std::string("").data(), 0)) {
-
-                    if (ImGui::Selectable("##", not sel_resID)) { sel_resID = std::nullopt; }
-
-                    if (sel_jobID) {
-                        for (size_t n = 0; n < jobs.at(sel_jobID.value()).second.vecOfRes.size(); n++) {
-                            bool const selected = sel_resID ? sel_resID.value() == n : false;
-                            if (ImGui::Selectable(std::format("Task {}", n).data(), selected)) { sel_resID = n; }
+                        if (ImGui::Selectable("##", not sel_jobID)) {
+                            sel_jobID = std::nullopt;
+                            sel_resID = std::nullopt;
                         }
-                    }
 
-                    ImGui::EndCombo();
-                }
-
-                if (sel_jobID && sel_resID) {
-
-                    auto const &selJobSolvRes = std::get<1>(jobs.at(sel_jobID.value()));
-                    if (ImGui::BeginTable("OneResTable", selJobSolvRes.m_trees.at(sel_resID.value()).xDim,
-                                          ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV |
-                                              ImGuiTableFlags_BordersH | ImGuiTableFlags_SizingFixedSame |
-                                              ImGuiTableFlags_NoHostExtendX | ImGuiTableFlags_NoPadOuterX |
-                                              ImGuiTableFlags_NoPadInnerX,
-                                          ImVec2(0.0f, 0.0f))) {
-
-                        // Setup each column
-                        for (int c = 0; c < selJobSolvRes.m_trees.at(sel_resID.value()).xDim; ++c) {
-                            ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 16.0f);
-                        };
-
-                        // Draw each square (ie. set the right background color)
-                        for (int tRow = 1; tRow < selJobSolvRes.m_trees.at(sel_resID.value()).yDim + 1; tRow++) {
-                            ImGui::TableNextRow(ImGuiTableRowFlags_None, 16.0f);
-                            for (int tCol = 1; tCol < selJobSolvRes.m_trees.at(sel_resID.value()).xDim + 1; tCol++) {
-
-                                ImGui::TableSetColumnIndex(tCol - 1);
-
-                                ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg,
-                                                       selJobSolvRes.colorsToUse.at(
-                                                           selJobSolvRes.accs.at(sel_resID.value()).at(tRow, tCol)));
+                        for (size_t n = 0; n < jobs.size(); n++) {
+                            bool const selected = sel_jobID ? sel_jobID.value() == n : false;
+                            if (ImGui::Selectable(std::format("Job {}", n).data(), selected)) {
+                                sel_jobID = n;
+                                sel_resID = std::nullopt;
                             }
                         }
-                        ImGui::EndTable();
+                        ImGui::EndCombo();
+                    }
+
+                    if (ImGui::BeginListBox("##ResListBox", ImVec2(0, 20 * ImGui::GetTextLineHeightWithSpacing()))) {
+                        if (ImGui::Selectable("##", not sel_resID)) { sel_resID = std::nullopt; }
+                        if (sel_jobID) {
+                            for (size_t n = 0; n < jobs.at(sel_jobID.value()).second.vecOfRes.size(); n++) {
+
+                                bool const finished =
+                                    jobs.at(sel_jobID.value()).second.vecOfRes.at(n).size() != 0 ? true : false;
+                                bool const is_selected = sel_resID ? sel_resID.value() == n : false;
+                                if (ImGui::Selectable(std::format("Task {} {}", n, finished ? "... Done" : "").data(),
+                                                      is_selected)) {
+                                    sel_resID    = n;
+                                    rewindSlider = static_cast<int>(
+                                        jobs.at(sel_jobID.value()).second.endOfVisible.at(sel_resID.value()));
+                                }
+
+                                // Set the initial focus when opening the combo (scrolling + keyboard navigation focus)
+                                if (is_selected) { ImGui::SetItemDefaultFocus(); }
+                            }
+                        }
+                        ImGui::EndListBox();
+                    }
+                    ImGui::PopItemWidth();
+                    ImGui::EndGroup();
+                }
+
+                {
+                    if (sel_jobID && sel_resID) {
+                        ImGui::SameLine();
+                        ImGui::Dummy(
+                            ImVec2(ImGui::GetTextLineHeightWithSpacing(), ImGui::GetTextLineHeightWithSpacing()));
+
+                        ImGui::SameLine();
+                        ImGui::BeginGroup();
+
+                        // rewindSlider = std::min(
+                        //     rewindSlider,
+                        //     static_cast<int>(jobs.at(sel_jobID.value()).second.endOfVisible.at(sel_resID.value())));
+
+                        // This should only execute if the value changed
+                        if (ImGui::SliderInt("##int", &rewindSlider, 0,
+                                             jobs.at(sel_jobID.value()).second.vecOfRes.at(sel_resID.value()).size() -
+                                                 1)) {
+                            // We gotta rewind the
+                            if (jobs.at(sel_jobID.value()).second.endOfVisible.at(sel_resID.value()) != rewindSlider) {
+                                int const difference =
+                                    (rewindSlider -
+                                     jobs.at(sel_jobID.value()).second.endOfVisible.at(sel_resID.value()));
+
+                                jobs.at(sel_jobID.value()).second.moveInTime_area(sel_resID.value(), difference);
+                                jobs.at(sel_jobID.value()).second.endOfVisible.at(sel_resID.value()) = rewindSlider;
+                            }
+                        }
+
+                        auto const &selJobSolvRes = std::get<1>(jobs.at(sel_jobID.value()));
+                        if (ImGui::BeginTable("OneResTable", selJobSolvRes.m_trees.at(sel_resID.value()).xDim,
+                                              ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV |
+                                                  ImGuiTableFlags_BordersH | ImGuiTableFlags_SizingFixedSame |
+                                                  ImGuiTableFlags_NoHostExtendX | ImGuiTableFlags_NoPadOuterX |
+                                                  ImGuiTableFlags_NoPadInnerX,
+                                              ImVec2(0.0f, 0.0f))) {
+
+                            // Setup each column
+                            for (int c = 0; c < selJobSolvRes.m_trees.at(sel_resID.value()).xDim; ++c) {
+                                ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 16.0f);
+                            };
+
+                            // Draw each square (ie. set the right background color)
+                            for (int tRow = 1; tRow < selJobSolvRes.m_trees.at(sel_resID.value()).yDim + 1; tRow++) {
+                                ImGui::TableNextRow(ImGuiTableRowFlags_None, 16.0f);
+                                for (int tCol = 1; tCol < selJobSolvRes.m_trees.at(sel_resID.value()).xDim + 1;
+                                     tCol++) {
+
+                                    ImGui::TableSetColumnIndex(tCol - 1);
+
+                                    ImGui::TableSetBgColor(
+                                        ImGuiTableBgTarget_CellBg,
+                                        selJobSolvRes.colorsToUse.at(
+                                            selJobSolvRes.accs.at(sel_resID.value()).at(tRow, tCol)));
+                                }
+                            }
+                            ImGui::EndTable();
+                        }
+                        ImGui::EndGroup();
                     }
                 }
             }
