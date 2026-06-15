@@ -23,16 +23,16 @@ CPMAddPackage(
 #####################################################################
 ### ImGui related ###
 #####################################################################
-CPMAddPackage(
-    NAME Freetype
-    GIT_REPOSITORY https://gitlab.freedesktop.org/freetype/freetype.git
-    GIT_TAG VER-2-14-3
-    VERSION 2.14.3
-)
+# CPMAddPackage(
+#     NAME Freetype
+#     GIT_REPOSITORY https://gitlab.freedesktop.org/freetype/freetype.git
+#     GIT_TAG VER-2-14-3
+#     VERSION 2.14.3
+# )
 
-if(Freetype_ADDED AND NOT TARGET Freetype::Freetype)
-    add_library(Freetype::Freetype ALIAS freetype)
-endif()
+# if(Freetype_ADDED AND NOT TARGET Freetype::Freetype)
+#     add_library(Freetype::Freetype ALIAS freetype)
+# endif()
 
 
 # ImGui
@@ -57,7 +57,7 @@ set(IMGUI_DEMO FALSE)
 set(IMGUI_ENABLE_STDLIB_SUPPORT TRUE)
 # FreeType (https://github.com/cpm-cmake/CPM.cmake/wiki/More-Snippets#freetype)
 
-# set(IMGUI_ENABLE_FREETYPE FALSE)
+set(IMGUI_ENABLE_FREETYPE FALSE)
 set(FREETYPE_FOUND TRUE)
 set(FREETYPE_INCLUDE_DIRS "")
 set(FREETYPE_LIBRARIES Freetype::Freetype)

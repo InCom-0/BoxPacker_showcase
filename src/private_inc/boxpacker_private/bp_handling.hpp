@@ -91,9 +91,9 @@ struct ShapesStorage {
 };
 
 struct Tree {
-    int                        yDim;
-    int                        xDim;
-    std::vector<std::uint64_t> reqdShapes;
+    int                      yDim;
+    int                      xDim;
+    std::vector<std::size_t> reqdShapes;
 
     bool removeErase_oneID(size_t const idToRemove) {
         if (idToRemove >= reqdShapes.size()) { return false; }
@@ -137,17 +137,21 @@ inline std::tuple<ShapesStorage, std::vector<Tree>> get_integratedSampleData(std
     ShapesStorage     &shps  = std::get<0>(res);
     std::vector<Tree> &trees = std::get<1>(res);
 
-    auto any_ctre = ctre::search<R"(.+)">;
-    auto d_ctre   = ctre::search<R"(\d+)">;
-    auto input    = incom::aoc::parseInputUsingCTRE::processFile(df, any_ctre).front();
+    auto any_ctre    = ctre::search<R"(.+)">;
+    auto d_ctre      = ctre::search<R"(\d+)">;
+    auto shapeHeader = ctre::search<R"(^\d+:)">;
+    auto input       = incom::aoc::parseInputUsingCTRE::processFile(df, any_ctre).front();
 
 
     for (size_t lineID = 0; lineID < input.size(); ++lineID) {
-        if (input.at(lineID).size() == 2) {
+        if (shapeHeader(input.at(lineID).begin(), input.at(lineID).end())) {
+            // if (input.at(lineID).size() == 3) {
             shps.m_shapes.emplace_back();
             for (size_t shape_line = 0; shape_line < 3; ++shape_line) {
                 lineID++;
-                for (auto oneChr : input.at(lineID)) { shps.m_shapes.back().m_data.push_back(oneChr == '#' ? 1 : 0); }
+                for (auto oneChr : std::views::take(input.at(lineID), 3)) {
+                    shps.m_shapes.back().m_data.push_back(oneChr == '#' ? 1 : 0);
+                }
             }
         }
         if (input.at(lineID).size() > 5) {

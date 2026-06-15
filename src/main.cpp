@@ -63,7 +63,11 @@
 #include <boxpacker_private/incom_async.hpp>
 
 
+#ifdef __EMSCRIPTEN__
+#define BOXPACKER_SAMPLE_INPUT "/data/BoxPacker_sample_input.txt"
+#else
 #define BOXPACKER_SAMPLE_INPUT "../../../data/BoxPacker_sample_input.txt"
+#endif
 
 // Main code
 int main(int, char **) {
@@ -136,7 +140,9 @@ int main(int, char **) {
     }
 
     SDL_GL_MakeCurrent(window, gl_context);
+#ifndef __EMSCRIPTEN__
     SDL_GL_SetSwapInterval(1); // Enable vsync
+#endif
 
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
@@ -177,6 +183,11 @@ int main(int, char **) {
 
     auto const [shapes_ORIG, trees_ORIG] = incom::box_packer::get_integratedSampleData(df);
 
+    if (trees_ORIG.empty()) {
+        std::cerr << "Failed to load sample input from: " << df << '\n';
+        return 1;
+    }
+
     auto shps  = shapes_ORIG;
     auto trees = trees_ORIG;
 
@@ -202,7 +213,7 @@ int main(int, char **) {
 
     namespace incpack = incom::standard::solvers::packing;
 
-    exec::static_thread_pool tPool_work{4};
+    exec::static_thread_pool tPool_work{8};
     auto                     tPool_workSch = tPool_work.get_scheduler();
 
 
@@ -248,7 +259,7 @@ int main(int, char **) {
                             .at(itemPR.ol_shpID.alternID)
                             .at(r - (itemPos.y + 1))
                             .at(c - (itemPos.x + 1))) {
-                        accs.at(resID).at(r, c) = itemPR.ol_shpID.shpID + 1;
+                        accs.at(resID)[r, c] = itemPR.ol_shpID.shpID + 1;
                     }
                 }
             }
@@ -262,7 +273,7 @@ int main(int, char **) {
                             .at(itemPR.ol_shpID.alternID)
                             .at(r - (itemPos.y + 1))
                             .at(c - (itemPos.x + 1))) {
-                        accs.at(resID).at(r, c) = 0;
+                        accs.at(resID)[r, c] = 0;
                     }
                 }
             }
@@ -452,7 +463,7 @@ int main(int, char **) {
                 // ### Job control
                 {
                     ImGui::SeparatorText("Job control");
-                    if (ImGui::Button("Execute plan")) {
+                    if (ImGui::Button("Execute plan") and not planTrees.empty()) {
                         jobs.push_back(std::make_pair(
                             incom::standard::async::spawn_uptr(
                                 incom::box_packer::bp_asyncExecute, tPool_workSch, planTrees,
@@ -787,10 +798,9 @@ int main(int, char **) {
 
                                     ImGui::TableSetColumnIndex(tCol - 1);
 
-                                    ImGui::TableSetBgColor(
-                                        ImGuiTableBgTarget_CellBg,
-                                        selJobSolvRes.colorsToUse.at(
-                                            selJobSolvRes.accs.at(sel_resID.value()).at(tRow, tCol)));
+                                    ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg,
+                                                           selJobSolvRes.colorsToUse.at(
+                                                               selJobSolvRes.accs.at(sel_resID.value())[tRow, tCol]));
                                 }
                             }
                             ImGui::EndTable();
@@ -816,7 +826,9 @@ int main(int, char **) {
         glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         SDL_GL_SwapWindow(window);
+#ifndef __EMSCRIPTEN__
         SDL_Delay(6);
+#endif
 #pragma endregion SDL2_Rendering
     }
 #ifdef __EMSCRIPTEN__
