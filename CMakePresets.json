@@ -241,8 +241,8 @@
         {
             "name": "_emscripten",
             "hidden": true,
+            "toolchainFile": "cmake/emscripten/esmcripten_toolchain_FinderWrapper.cmake",
             "cacheVariables": {
-                "CMAKE_TOOLCHAIN_FILE": "$env{EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
                 "CMAKE_C_COMPILER": "emcc",
                 "CMAKE_CXX_COMPILER": "em++",
                 "CMAKE_C_FLAGS": "-sMEMORY64=1",
