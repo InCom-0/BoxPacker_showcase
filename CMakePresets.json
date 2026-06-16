@@ -243,8 +243,6 @@
             "hidden": true,
             "toolchainFile": "cmake/emscripten/esmcripten_toolchain_FinderWrapper.cmake",
             "cacheVariables": {
-                "CMAKE_C_COMPILER": "emcc",
-                "CMAKE_CXX_COMPILER": "em++",
                 "CMAKE_C_FLAGS": "-sMEMORY64=1",
                 "CMAKE_CXX_FLAGS": "-sMEMORY64=1",
                 "CMAKE_EXE_LINKER_FLAGS": "-sMEMORY64=1",
