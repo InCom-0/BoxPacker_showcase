@@ -1,36 +1,19 @@
-// Dear ImGui: standalone example application for SDL2 + OpenGL
-// (SDL is a cross-platform general purpose library for handling windows, inputs, OpenGL/Vulkan/Metal graphics context
-// creation, etc.)
-
-// Learn about Dear ImGui:
-// - FAQ                  https://dearimgui.com/faq
-// - Getting Started      https://dearimgui.com/getting-started
-// - Documentation        https://dearimgui.com/docs (same as your local docs/ folder).
-// - Introduction, links and more at the top of imgui.cpp
 
 
 #include <cstddef>
-#include <cstdint>
-#include <format>
-#include <incstd/console/colorschemes.hpp>
-#include <incstd/core/solvers.hpp>
 #include <iostream>
-#include <limits>
 #include <mdspan>
 #include <memory>
 #include <optional>
 #include <ranges>
 #include <string>
-#include <thread>
 #include <vector>
 
 
-#include <ankerl/unordered_dense.h>
 #include <imgui.h>
 #include <imgui_impl_opengl3.h>
 #include <imgui_impl_sdl2.h>
 #include <imgui_internal.h>
-#include <readerwriterqueue.h>
 
 #include <exec/async_scope.hpp>
 #include <exec/execute.hpp>
@@ -39,6 +22,12 @@
 #include <exec/static_thread_pool.hpp>
 #include <exec/task.hpp>
 #include <stdexec/execution.hpp>
+
+
+#include <ankerl/unordered_dense.h>
+#include <incstd/console/colorschemes.hpp>
+#include <incstd/core/solvers.hpp>
+#include <readerwriterqueue.h>
 
 
 #define SDL_MAIN_HANDLED
@@ -58,9 +47,8 @@
 #endif
 
 #include <boxpacker_private/bp_handling.hpp>
-#include <boxpacker_private/incom_commons.h>
-
 #include <boxpacker_private/incom_async.hpp>
+#include <boxpacker_private/incom_commons.h>
 
 
 #ifdef __EMSCRIPTEN__
@@ -216,93 +204,12 @@ int main(int, char **) {
     auto                     tPool_workSch = tPool_work.get_scheduler();
 
 
-    struct SolveResStore {
-
-        decltype(trees_ORIG)                                                                           m_trees;
-        std::vector<std::vector<std::array<std::array<bool, 3>, 3>>> const                             m_shpsAlterns;
-        std::vector<std::vector<std::tuple<incom::box_packer::BP_Pos, incom::box_packer::BP_PastRes>>> vecOfRes = {};
-        std::vector<size_t>                                                                            endOfVisible;
-
-        std::vector<std::vector<std::uint8_t>>               m_reaAreaMaps;
-        std::vector<std::mdspan<std::uint8_t, std::dims<2>>> accs;
-
-        std::vector<ImU32> colorsToUse;
-
-        SolveResStore(decltype(trees_ORIG) const                                         &trees,
-                      std::vector<std::vector<std::array<std::array<bool, 3>, 3>>> const &shpsAlterns,
-                      std::array<incom::standard::color::inc_sRGB, 256> const            &palette =
-                          incom::standard::console::color_schemes::windows_terminal::dimidium256.palette)
-            : m_trees(trees), m_shpsAlterns(shpsAlterns), vecOfRes(trees.size()), endOfVisible(trees.size(), 0uz),
-              m_reaAreaMaps(std::from_range, std::views::transform(trees,
-                                                                   [](auto const &item) {
-                                                                       return std::vector<std::uint8_t>(
-                                                                           (item.yDim + 2) * (item.xDim + 2), 0);
-                                                                   })),
-              accs(std::from_range,
-                   std::views::transform(std::views::zip(m_reaAreaMaps, m_trees),
-                                         [](auto const &onePair) {
-                                             return std::mdspan(std::get<0>(onePair).data(),
-                                                                std::dims<2>{std::get<1>(onePair).yDim + 2,
-                                                                             std::get<1>(onePair).xDim + 2});
-                                         })),
-              colorsToUse(std::from_range, std::views::transform(palette, [](auto const &oneCol) {
-                              return ImU32(ImColor(oneCol.r, oneCol.g, oneCol.b));
-                          })) {}
-
-
-        void update_oneShape(size_t const resID, size_t const vecOfRes_ID) {
-            auto const &[itemPos, itemPR] = vecOfRes.at(resID).at(vecOfRes_ID);
-            for (size_t r = itemPos.y + 1; r < itemPos.y + 1 + 3; ++r) {
-                for (size_t c = itemPos.x + 1; c < itemPos.x + 1 + 3; ++c) {
-                    if (m_shpsAlterns.at(itemPR.ol_shpID.shpID)
-                            .at(itemPR.ol_shpID.alternID)
-                            .at(r - (itemPos.y + 1))
-                            .at(c - (itemPos.x + 1))) {
-                        accs.at(resID)[r, c] = itemPR.ol_shpID.shpID + 1;
-                    }
-                }
-            }
-        }
-
-        void remove_oneShape(size_t const resID, size_t const vecOfRes_ID) {
-            auto const &[itemPos, itemPR] = vecOfRes.at(resID).at(vecOfRes_ID);
-            for (size_t r = itemPos.y + 1; r < itemPos.y + 1 + 3; ++r) {
-                for (size_t c = itemPos.x + 1; c < itemPos.x + 1 + 3; ++c) {
-                    if (m_shpsAlterns.at(itemPR.ol_shpID.shpID)
-                            .at(itemPR.ol_shpID.alternID)
-                            .at(r - (itemPos.y + 1))
-                            .at(c - (itemPos.x + 1))) {
-                        accs.at(resID)[r, c] = 0;
-                    }
-                }
-            }
-        }
-
-        bool moveInTime_area(size_t const resID, int const moveInTimeBy) {
-            if ((endOfVisible.at(resID) + moveInTimeBy) < 0 or
-                (endOfVisible.at(resID) + moveInTimeBy) > vecOfRes.at(resID).size()) {
-                return false;
-            }
-
-            int const end = (endOfVisible.at(resID) + moveInTimeBy);
-            if (moveInTimeBy < 0) {
-                for (int i = endOfVisible.at(resID) - 1; i >= end; --i) { remove_oneShape(resID, i); }
-            }
-            else {
-                for (int i = endOfVisible.at(resID); i < end; ++i) { update_oneShape(resID, i); }
-            }
-
-            return true;
-        }
-    };
-
-
     std::vector<std::pair<std::unique_ptr<decltype(incom::standard::async::spawn(
                               incom::box_packer::bp_asyncExecute, tPool_workSch, trees,
                               std::vector(std::from_range, shpsForBoxPacker_view), incom::standard::async::Separator{},
                               moodycamel::ReaderWriterQueue<
                                   std::tuple<size_t, incom::box_packer::BP_Pos, incom::box_packer::BP_PastRes>>{}))>,
-                          SolveResStore>>
+                          incom::box_packer::SolveResStore>>
         jobs;
 
 
@@ -472,7 +379,8 @@ int main(int, char **) {
                                 moodycamel::ReaderWriterQueue<
                                     std::tuple<size_t, incom::box_packer::BP_Pos, incom::box_packer::BP_PastRes>>{
                                     4096}),
-                            SolveResStore(planTrees, std::vector(std::from_range, shpsForBoxPacker_view))));
+                            incom::box_packer::SolveResStore(planTrees,
+                                                             std::vector(std::from_range, shpsForBoxPacker_view))));
 
                         sel_jobID = jobs.size() - 1;
                     }

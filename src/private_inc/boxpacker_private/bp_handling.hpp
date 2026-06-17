@@ -20,8 +20,15 @@
 #include <exec/task.hpp>
 #include <stdexec/execution.hpp>
 
+#include <imgui.h>
+
 
 namespace incom::box_packer {
+
+namespace incpack = incom::standard::solvers::packing;
+using BP_Pos      = incpack::BoxPacker_2D<5>::Pos;
+using BP_PastRes  = incpack::BoxPacker_2D<5>::PastRes;
+
 struct Shape {
     std::vector<uint32_t> m_data;
 
@@ -130,6 +137,86 @@ struct Tree {
     }
 };
 
+struct SolveResStore {
+
+    std::vector<Tree>                                                                              m_trees;
+    std::vector<std::vector<std::array<std::array<bool, 3>, 3>>> const                             m_shpsAlterns;
+    std::vector<std::vector<std::tuple<incom::box_packer::BP_Pos, incom::box_packer::BP_PastRes>>> vecOfRes = {};
+    std::vector<size_t>                                                                            endOfVisible;
+
+    std::vector<std::vector<std::uint8_t>>               m_reaAreaMaps;
+    std::vector<std::mdspan<std::uint8_t, std::dims<2>>> accs;
+
+    std::vector<ImU32> colorsToUse;
+
+    SolveResStore(std::vector<Tree> const                                            &trees,
+                  std::vector<std::vector<std::array<std::array<bool, 3>, 3>>> const &shpsAlterns,
+                  std::array<incom::standard::color::inc_sRGB, 256> const            &palette =
+                      incom::standard::console::color_schemes::windows_terminal::dimidium256.palette)
+        : m_trees(trees), m_shpsAlterns(shpsAlterns), vecOfRes(trees.size()), endOfVisible(trees.size(), 0uz),
+          m_reaAreaMaps(std::from_range, std::views::transform(trees,
+                                                               [](auto const &item) {
+                                                                   return std::vector<std::uint8_t>(
+                                                                       (item.yDim + 2) * (item.xDim + 2), 0);
+                                                               })),
+          accs(std::from_range,
+               std::views::transform(std::views::zip(m_reaAreaMaps, m_trees),
+                                     [](auto const &onePair) {
+                                         return std::mdspan(std::get<0>(onePair).data(),
+                                                            std::dims<2>{std::get<1>(onePair).yDim + 2,
+                                                                         std::get<1>(onePair).xDim + 2});
+                                     })),
+          colorsToUse(std::from_range, std::views::transform(palette, [](auto const &oneCol) {
+                          return ImU32(ImColor(oneCol.r, oneCol.g, oneCol.b));
+                      })) {}
+
+
+    void update_oneShape(size_t const resID, size_t const vecOfRes_ID) {
+        auto const &[itemPos, itemPR] = vecOfRes.at(resID).at(vecOfRes_ID);
+        for (size_t r = itemPos.y + 1; r < itemPos.y + 1 + 3; ++r) {
+            for (size_t c = itemPos.x + 1; c < itemPos.x + 1 + 3; ++c) {
+                if (m_shpsAlterns.at(itemPR.ol_shpID.shpID)
+                        .at(itemPR.ol_shpID.alternID)
+                        .at(r - (itemPos.y + 1))
+                        .at(c - (itemPos.x + 1))) {
+                    accs.at(resID)[r, c] = itemPR.ol_shpID.shpID + 1;
+                }
+            }
+        }
+    }
+
+    void remove_oneShape(size_t const resID, size_t const vecOfRes_ID) {
+        auto const &[itemPos, itemPR] = vecOfRes.at(resID).at(vecOfRes_ID);
+        for (size_t r = itemPos.y + 1; r < itemPos.y + 1 + 3; ++r) {
+            for (size_t c = itemPos.x + 1; c < itemPos.x + 1 + 3; ++c) {
+                if (m_shpsAlterns.at(itemPR.ol_shpID.shpID)
+                        .at(itemPR.ol_shpID.alternID)
+                        .at(r - (itemPos.y + 1))
+                        .at(c - (itemPos.x + 1))) {
+                    accs.at(resID)[r, c] = 0;
+                }
+            }
+        }
+    }
+
+    bool moveInTime_area(size_t const resID, int const moveInTimeBy) {
+        if ((endOfVisible.at(resID) + moveInTimeBy) < 0 or
+            (endOfVisible.at(resID) + moveInTimeBy) > vecOfRes.at(resID).size()) {
+            return false;
+        }
+
+        int const end = (endOfVisible.at(resID) + moveInTimeBy);
+        if (moveInTimeBy < 0) {
+            for (int i = endOfVisible.at(resID) - 1; i >= end; --i) { remove_oneShape(resID, i); }
+        }
+        else {
+            for (int i = endOfVisible.at(resID); i < end; ++i) { update_oneShape(resID, i); }
+        }
+
+        return true;
+    }
+};
+
 
 inline std::tuple<ShapesStorage, std::vector<Tree>> get_integratedSampleData(std::string &df) {
     std::tuple<ShapesStorage, std::vector<Tree>> res;
@@ -168,10 +255,6 @@ inline std::tuple<ShapesStorage, std::vector<Tree>> get_integratedSampleData(std
     return res;
 }
 
-
-namespace incpack = incom::standard::solvers::packing;
-using BP_Pos      = incpack::BoxPacker_2D<5>::Pos;
-using BP_PastRes  = incpack::BoxPacker_2D<5>::PastRes;
 
 inline constexpr auto bp_asyncExecute =
     [](auto &sch, std::vector<incom::box_packer::Tree> const trees, auto const shpsToUse,
