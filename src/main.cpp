@@ -125,9 +125,8 @@ int main(int, char **) {
     float           main_scale = ImGui_ImplSDL2_GetContentScaleForDisplay(0);
     SDL_WindowFlags window_flags =
         (SDL_WindowFlags)(SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
-    SDL_Window *window =
-        SDL_CreateWindow("Dear ImGui SDL2+OpenGL3 example", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-                         (int)(1280 * main_scale), (int)(800 * main_scale), window_flags);
+    SDL_Window *window = SDL_CreateWindow("AOC 2025 Day 12 solver", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+                                          (int)(1280 * main_scale), (int)(800 * main_scale), window_flags);
     if (window == nullptr) {
         printf("Error: SDL_CreateWindow(): %s\n", SDL_GetError());
         return 1;
@@ -281,7 +280,7 @@ int main(int, char **) {
 
         bool moveInTime_area(size_t const resID, int const moveInTimeBy) {
             if ((endOfVisible.at(resID) + moveInTimeBy) < 0 or
-                (endOfVisible.at(resID) + moveInTimeBy) >= vecOfRes.at(resID).size()) {
+                (endOfVisible.at(resID) + moveInTimeBy) > vecOfRes.at(resID).size()) {
                 return false;
             }
 
@@ -382,11 +381,12 @@ int main(int, char **) {
             ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
             ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
 
-            ImGui::Begin("Hello, world!", 0,
+            ImGui::Begin("AOC 2025 day 12 solver", 0,
                          ImGuiWindowFlags_NoTitleBar); // Create a window called "Hello, world!" and append into it.
 
-            ImGui::TextWrapped("Sketch: background work runs on worker threads, progress is polled by the main thread "
-                               "every frame, and completion messages are drained into UI state.");
+            ImGui::TextWrapped("Interactive heuristic solver and solution explorer for Advent of Code 2025 day 12.");
+            ImGui::TextWrapped("It does not find the 'provably best' solution. It finds 'pretty good' solutions at "
+                               "lightning speed using a heuristic process resembling how a human might approach this.");
 
 
             // ##################################
@@ -764,8 +764,7 @@ int main(int, char **) {
 
                         // This should only execute if the value changed
                         if (ImGui::SliderInt("##int", &rewindSlider, 0,
-                                             jobs.at(sel_jobID.value()).second.vecOfRes.at(sel_resID.value()).size() -
-                                                 1)) {
+                                             jobs.at(sel_jobID.value()).second.vecOfRes.at(sel_resID.value()).size())) {
                             // We gotta rewind the
                             if (jobs.at(sel_jobID.value()).second.endOfVisible.at(sel_resID.value()) != rewindSlider) {
                                 int const difference =
