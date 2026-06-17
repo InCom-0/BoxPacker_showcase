@@ -671,13 +671,16 @@ int main(int, char **) {
                         //     static_cast<int>(jobs.at(sel_jobID.value()).second.endOfVisible.at(sel_resID.value())));
 
                         // This should only execute if the value changed
+
+                        ImGui::PushItemWidth(
+                            std::get<1>(jobs.at(sel_jobID.value())).m_trees.at(sel_resID.value()).xDim * 17.0f);
                         if (ImGui::SliderInt("##int", &rewindSlider, 0,
                                              jobs.at(sel_jobID.value()).second.vecOfRes.at(sel_resID.value()).size())) {
                             rewindSlider = std::clamp(
                                 rewindSlider, 0,
                                 static_cast<int>(
                                     jobs.at(sel_jobID.value()).second.vecOfRes.at(sel_resID.value()).size()));
-                                    
+
                             // We gotta rewind the
                             if (jobs.at(sel_jobID.value()).second.endOfVisible.at(sel_resID.value()) != rewindSlider) {
                                 int const difference =
@@ -688,6 +691,10 @@ int main(int, char **) {
                                 jobs.at(sel_jobID.value()).second.endOfVisible.at(sel_resID.value()) = rewindSlider;
                             }
                         }
+                        ImGui::PopItemWidth();
+
+                        auto const rewindSize = ImGui::GetItemRectSize();
+                        ImGui::Dummy(rewindSize);
 
                         auto const &selJobSolvRes = std::get<1>(jobs.at(sel_jobID.value()));
                         if (ImGui::BeginTable("OneResTable", selJobSolvRes.m_trees.at(sel_resID.value()).xDim,
@@ -717,6 +724,87 @@ int main(int, char **) {
                             }
                             ImGui::EndTable();
                         }
+                        ImGui::EndGroup();
+
+                        ImGui::SameLine();
+                        ImGui::Dummy(ImVec2{16.0f, rewindSize.y});
+
+                        ImGui::SameLine();
+                        ImGui::BeginGroup();
+                        ImGui::Dummy(ImVec2{16.0f, rewindSize.y});
+                        ImGui::Dummy(ImVec2{16.0f, rewindSize.y});
+
+
+                        for (int r = 0; r < selJobSolvRes.m_shpsAlterns.size(); ++r) {
+                            ImGui::BeginGroup();
+
+                            // Shape table begin
+                            ImGui::PushID(r);
+                            if (ImGui::BeginTable("OneShape_table", 3,
+                                                  ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV |
+                                                      ImGuiTableFlags_BordersH | ImGuiTableFlags_SizingFixedSame |
+                                                      ImGuiTableFlags_NoHostExtendX | ImGuiTableFlags_NoPadOuterX |
+                                                      ImGuiTableFlags_NoPadInnerX,
+                                                  ImVec2(0.0f, 0.0f))) {
+
+
+                                for (int c = 0; c < 3; ++c) {
+                                    ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 26.0f);
+                                };
+
+                                auto &spn = selJobSolvRes.m_shpsAlterns.at(r).at(0);
+                                // auto spn = shps.m_shapes.at(curShpIDX).get_viewInto(3uz, 3uz);
+                                for (int tRow = 0; tRow < 3; tRow++) {
+                                    ImGui::TableNextRow(ImGuiTableRowFlags_None, 26);
+                                    for (int tCol = 0; tCol < 3; tCol++) {
+
+                                        ImGui::PushID(tRow * 3 + tCol);
+                                        ImGui::TableSetColumnIndex(tCol);
+
+                                        ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg,
+                                                               spn[tRow][tCol] != 0
+                                                                   ? selJobSolvRes.colorsToUse.at(r + 1)
+                                                                   : selJobSolvRes.colorsToUse.at(0));
+
+                                        ImGui::PopID();
+                                    }
+                                }
+                                ImGui::EndTable();
+                            }
+                            ImGui::PopID();
+
+                            // Shape table header (count of shapes DragInt)
+                            ImGui::SameLine();
+                            ImGui::BeginGroup();
+                            ImGui::PushItemWidth(81.0);
+                            ImGui::PushID(r);
+                            int curVal = 0;
+
+                            ImGui::PushStyleColor(ImGuiCol_PlotHistogram, selJobSolvRes.colorsToUse.at(r + 1));
+                            ImGui::Text("Requested: %lu", selJobSolvRes.m_trees.at(sel_resID.value()).reqdShapes.at(r));
+                            ImGui::Text("Shape alterns: %lu", selJobSolvRes.m_shpsAlterns.at(r).size());
+                            ImGui::Dummy(ImGui::GetItemRectSize());
+
+
+                            size_t const totalToPlace = selJobSolvRes.m_trees.at(sel_resID.value()).reqdShapes.at(r);
+                            size_t const remainingToPlace =
+                                totalToPlace - selJobSolvRes.m_curPlacedCount.at(sel_resID.value()).at(r);
+
+                            char buf[32];
+                            sprintf(buf, "%lu/%lu", remainingToPlace, totalToPlace);
+                            ImGui::ProgressBar(static_cast<float>(remainingToPlace) / totalToPlace,
+                                               ImVec2(ImGui::GetItemRectSize().x, 0.f), buf);
+
+                            ImGui::PopStyleColor();
+
+                            ImGui::PopID();
+                            ImGui::PopItemWidth();
+                            ImGui::EndGroup();
+
+                            ImGui::EndGroup();
+                            // if (c != (colCount - 1)) { ImGui::SameLine(); }
+                        }
+
                         ImGui::EndGroup();
                     }
                 }

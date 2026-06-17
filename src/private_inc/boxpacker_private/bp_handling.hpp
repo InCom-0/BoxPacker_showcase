@@ -144,6 +144,8 @@ struct SolveResStore {
     std::vector<std::vector<std::tuple<incom::box_packer::BP_Pos, incom::box_packer::BP_PastRes>>> vecOfRes = {};
     std::vector<size_t>                                                                            endOfVisible;
 
+    std::vector<std::vector<size_t>> m_curPlacedCount;
+
     std::vector<std::vector<std::uint8_t>>               m_reaAreaMaps;
     std::vector<std::mdspan<std::uint8_t, std::dims<2>>> accs;
 
@@ -154,6 +156,7 @@ struct SolveResStore {
                   std::array<incom::standard::color::inc_sRGB, 256> const            &palette =
                       incom::standard::console::color_schemes::windows_terminal::dimidium256.palette)
         : m_trees(trees), m_shpsAlterns(shpsAlterns), vecOfRes(trees.size()), endOfVisible(trees.size(), 0uz),
+          m_curPlacedCount(trees.size(), std::vector<size_t>(m_shpsAlterns.size(), 0)),
           m_reaAreaMaps(std::from_range, std::views::transform(trees,
                                                                [](auto const &item) {
                                                                    return std::vector<std::uint8_t>(
@@ -183,6 +186,7 @@ struct SolveResStore {
                 }
             }
         }
+        m_curPlacedCount.at(resID).at(itemPR.ol_shpID.shpID)++;
     }
 
     void remove_oneShape(size_t const resID, size_t const vecOfRes_ID) {
@@ -197,6 +201,7 @@ struct SolveResStore {
                 }
             }
         }
+        m_curPlacedCount.at(resID).at(itemPR.ol_shpID.shpID)--;
     }
 
     bool moveInTime_area(size_t const resID, int const moveInTimeBy) {
