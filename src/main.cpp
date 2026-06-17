@@ -673,6 +673,11 @@ int main(int, char **) {
                         // This should only execute if the value changed
                         if (ImGui::SliderInt("##int", &rewindSlider, 0,
                                              jobs.at(sel_jobID.value()).second.vecOfRes.at(sel_resID.value()).size())) {
+                            rewindSlider = std::clamp(
+                                rewindSlider, 0,
+                                static_cast<int>(
+                                    jobs.at(sel_jobID.value()).second.vecOfRes.at(sel_resID.value()).size()));
+                                    
                             // We gotta rewind the
                             if (jobs.at(sel_jobID.value()).second.endOfVisible.at(sel_resID.value()) != rewindSlider) {
                                 int const difference =
