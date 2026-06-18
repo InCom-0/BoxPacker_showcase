@@ -47,6 +47,7 @@
 #endif
 
 #include <boxpacker_private/bp_handling.hpp>
+#include <boxpacker_private/emscripten_file_picker_async.h>
 #include <boxpacker_private/incom_async.hpp>
 #include <boxpacker_private/incom_commons.h>
 
@@ -56,6 +57,20 @@
 #else
 #define BOXPACKER_SAMPLE_INPUT "../../../data/BoxPacker_sample_input.txt"
 #endif
+
+struct UploadedFile {
+    std::string filename;
+    std::string mime_type;
+    std::string data;
+};
+
+static std::deque<UploadedFile> g_uploaded_files;
+
+void handle_upload_file(std::string const &filename, std::string const &mime_type, std::string_view buffer, void *) {
+    // define a handler to process the file
+    // ...
+    g_uploaded_files.push_back(UploadedFile{filename, mime_type, std::string(buffer.data(), buffer.size())});
+}
 
 // Main code
 int main(int, char **) {
@@ -197,12 +212,9 @@ int main(int, char **) {
     auto                                 oneTree           = trees_ORIG.front();
     std::vector<incom::box_packer::Tree> planTrees;
 
-
     namespace incpack = incom::standard::solvers::packing;
-
     exec::static_thread_pool tPool_work{8};
     auto                     tPool_workSch = tPool_work.get_scheduler();
-
 
     std::vector<std::pair<std::unique_ptr<decltype(incom::standard::async::spawn(
                               incom::box_packer::bp_asyncExecute, tPool_workSch, trees,
@@ -222,6 +234,7 @@ int main(int, char **) {
 
     static std::optional<size_t> sel_jobID = std::nullopt;
     static std::optional<size_t> sel_resID = std::nullopt;
+
 #ifdef __EMSCRIPTEN__
     // For an Emscripten build we are disabling file-system access, so let's not attempt to do a fopen() of the
     // imgui.ini file. You may manually call LoadIniSettingsFromMemory() to load settings from your own storage.
@@ -294,6 +307,7 @@ int main(int, char **) {
             ImGui::TextWrapped("Interactive heuristic solver and solution explorer for Advent of Code 2025 day 12.");
             ImGui::TextWrapped("It does not find the 'provably best' solution. It finds 'pretty good' solutions at "
                                "lightning speed using a heuristic process resembling how a human might approach this.");
+            ImGui::Dummy(ImGui::GetItemRectSize());
 
 
             // ##################################
@@ -331,6 +345,10 @@ int main(int, char **) {
                     if (ImGui::Button("Add to plan")) { planTrees.push_back(trees.at(treeSelectedID)); }
                     ImGui::SameLine();
                     if (ImGui::Button("Add all to plan")) { planTrees.append_range(trees); }
+                    ImGui::SameLine();
+                    if (ImGui::Button("File diagtest")) {
+                        emscripten_file_picker_async::upload(".png,.jpg,.jpeg", handle_upload_file);
+                    }
 
                     ImGui::Dummy(ImGui::GetItemRectSize());
                 }
@@ -371,6 +389,15 @@ int main(int, char **) {
                 {
                     ImGui::SeparatorText("Job control");
                     if (ImGui::Button("Execute plan") and not planTrees.empty()) {
+
+                        // Repair planTrees so the shapeCounts for each tree inside match the shapes that will be used
+                        for (auto &oneTree : planTrees) {
+                            while (oneTree.reqdShapes.size() > shps.m_shapes.size()) { oneTree.reqdShapes.pop_back(); }
+                            while (oneTree.reqdShapes.size() < shps.m_shapes.size()) {
+                                oneTree.reqdShapes.push_back(0uz);
+                            }
+                        }
+
                         jobs.push_back(std::make_pair(
                             incom::standard::async::spawn_uptr(
                                 incom::box_packer::bp_asyncExecute, tPool_workSch, planTrees,
@@ -560,7 +587,6 @@ int main(int, char **) {
             // ##################################
             // ### Runner Plan
             // ##################################
-
             {
                 auto const prevGroupSize_v = ImGui::GetItemRectSize().y;
                 ImGui::SameLine();
@@ -609,6 +635,41 @@ int main(int, char **) {
             {
                 static int rewindSlider = 0;
 
+                struct AnimControl {
+                    std::chrono::nanoseconds m_oneIterDuration = std::chrono::nanoseconds::max();
+                    std::chrono::nanoseconds m_elapsedDuration = std::chrono::nanoseconds::zero();
+                    bool                     m_beingAnimated   = false;
+
+                    std::chrono::time_point<std::chrono::high_resolution_clock> m_start =
+                        std::chrono::high_resolution_clock::now();
+
+                    bool can_step() {
+                        return (m_oneIterDuration == std::chrono::nanoseconds::max()
+                                    ? false
+                                    : ((m_start + m_elapsedDuration + m_oneIterDuration) <=
+                                       std::chrono::high_resolution_clock::now()));
+                    }
+                    void do_oneStep() { m_elapsedDuration += m_oneIterDuration; }
+
+                    void start() {
+                        m_start           = std::chrono::high_resolution_clock::now();
+                        m_elapsedDuration = std::chrono::nanoseconds::zero();
+                        m_beingAnimated   = true;
+                    }
+
+                    void terminate() { m_beingAnimated = false; }
+
+                    void set_speed(int itersPerSec) {
+                        m_oneIterDuration = itersPerSec ? std::chrono::nanoseconds(1'000'000'000 / itersPerSec)
+                                                        : std::chrono::nanoseconds::max();
+                    }
+                };
+
+                static AnimControl animC{.m_oneIterDuration = std::chrono::nanoseconds(1'000'000'000 / 40)};
+
+                // ##################################
+                // ### Runners to view
+                // ##################################
                 ImGui::SeparatorText("Current runners");
                 {
                     ImGui::BeginGroup();
@@ -620,6 +681,7 @@ int main(int, char **) {
                         if (ImGui::Selectable("##", not sel_jobID)) {
                             sel_jobID = std::nullopt;
                             sel_resID = std::nullopt;
+                            animC.terminate();
                         }
 
                         for (size_t n = 0; n < jobs.size(); n++) {
@@ -642,7 +704,8 @@ int main(int, char **) {
                                 bool const is_selected = sel_resID ? sel_resID.value() == n : false;
                                 if (ImGui::Selectable(std::format("Task {} {}", n, finished ? "... Done" : "").data(),
                                                       is_selected)) {
-                                    sel_resID    = n;
+                                    sel_resID = n;
+                                    animC.terminate();
                                     rewindSlider = static_cast<int>(
                                         jobs.at(sel_jobID.value()).second.endOfVisible.at(sel_resID.value()));
                                 }
@@ -657,6 +720,10 @@ int main(int, char **) {
                     ImGui::EndGroup();
                 }
 
+
+                // ##################################
+                // ### Views of the runner
+                // ##################################
                 {
                     if (sel_jobID && sel_resID) {
                         ImGui::SameLine();
@@ -666,12 +733,20 @@ int main(int, char **) {
                         ImGui::SameLine();
                         ImGui::BeginGroup();
 
-                        // rewindSlider = std::min(
-                        //     rewindSlider,
-                        //     static_cast<int>(jobs.at(sel_jobID.value()).second.endOfVisible.at(sel_resID.value())));
+                        auto const &selJobSolvRes = std::get<1>(jobs.at(sel_jobID.value()));
 
-                        // This should only execute if the value changed
+                        if (animC.m_beingAnimated) {
+                            while (animC.can_step() &&
+                                   (rewindSlider < selJobSolvRes.vecOfRes.at(sel_resID.value()).size())) {
+                                rewindSlider++;
+                                animC.do_oneStep();
+                            }
+                            if (rewindSlider == selJobSolvRes.vecOfRes.at(sel_resID.value()).size()) {
+                                animC.terminate();
+                            }
+                        }
 
+                        // Rewind slider
                         ImGui::PushItemWidth(
                             std::get<1>(jobs.at(sel_jobID.value())).m_trees.at(sel_resID.value()).xDim * 17.0f);
                         if (ImGui::SliderInt("##int", &rewindSlider, 0,
@@ -680,23 +755,25 @@ int main(int, char **) {
                                 rewindSlider, 0,
                                 static_cast<int>(
                                     jobs.at(sel_jobID.value()).second.vecOfRes.at(sel_resID.value()).size()));
+                        }
 
-                            // We gotta rewind the
-                            if (jobs.at(sel_jobID.value()).second.endOfVisible.at(sel_resID.value()) != rewindSlider) {
-                                int const difference =
-                                    (rewindSlider -
-                                     jobs.at(sel_jobID.value()).second.endOfVisible.at(sel_resID.value()));
+                        // Moving the displayed data based on the slider (or animation)
+                        if (jobs.at(sel_jobID.value()).second.endOfVisible.at(sel_resID.value()) != rewindSlider) {
+                            int const difference =
+                                (rewindSlider - jobs.at(sel_jobID.value()).second.endOfVisible.at(sel_resID.value()));
 
-                                jobs.at(sel_jobID.value()).second.moveInTime_area(sel_resID.value(), difference);
-                                jobs.at(sel_jobID.value()).second.endOfVisible.at(sel_resID.value()) = rewindSlider;
-                            }
+                            jobs.at(sel_jobID.value()).second.moveInTime_area(sel_resID.value(), difference);
+                            jobs.at(sel_jobID.value()).second.endOfVisible.at(sel_resID.value()) = rewindSlider;
                         }
                         ImGui::PopItemWidth();
 
                         auto const rewindSize = ImGui::GetItemRectSize();
                         ImGui::Dummy(rewindSize);
 
-                        auto const &selJobSolvRes = std::get<1>(jobs.at(sel_jobID.value()));
+
+                        // ##################################
+                        // ### Result view
+                        // ##################################
                         if (ImGui::BeginTable("OneResTable", selJobSolvRes.m_trees.at(sel_resID.value()).xDim,
                                               ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV |
                                                   ImGuiTableFlags_BordersH | ImGuiTableFlags_SizingFixedSame |
@@ -735,6 +812,55 @@ int main(int, char **) {
                         ImGui::Dummy(ImVec2{16.0f, rewindSize.y});
 
 
+                        // ##################################
+                        // ### Result animation controls
+                        // ##################################
+                        {
+                            ImGui::BeginGroup();
+                            {
+                                bool animatedAtBeg = false;
+                                if (animC.m_beingAnimated) {
+                                    ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetColorU32(ImGuiCol_ButtonActive));
+                                    animatedAtBeg = true;
+                                }
+                                if (ImGui::Button("Run")) { animC.start(); }
+
+                                if (animatedAtBeg) { ImGui::PopStyleColor(); }
+                            }
+
+                            {
+                                bool pausedAtBeg = false;
+                                if (not animC.m_beingAnimated) {
+                                    ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetColorU32(ImGuiCol_ButtonActive));
+                                    pausedAtBeg = true;
+                                }
+                                ImGui::SameLine();
+                                if (ImGui::Button("Pause")) { animC.terminate(); }
+                                if (not animC.m_beingAnimated && pausedAtBeg) { ImGui::PopStyleColor(); }
+                            }
+
+                            ImGui::SameLine();
+                            if (ImGui::Button("Rewind")) {
+                                rewindSlider = 0;
+                                animC.terminate();
+                            }
+                            ImGui::EndGroup();
+
+                            ImGui::PushItemWidth(ImGui::GetItemRectSize().x);
+                            static int animSpeedPerSec = 40;
+                            if (ImGui::DragInt("##AnimSpeed", &animSpeedPerSec, 0.2f, 0, 1000, "iter/sec:  %d")) {
+                                animSpeedPerSec = std::max(animSpeedPerSec, 0);
+                                animC.set_speed(animSpeedPerSec);
+                            }
+
+                            ImGui::PopItemWidth();
+
+                            ImGui::Dummy(ImVec2{16.0f, rewindSize.y});
+                        }
+
+                        // ##################################
+                        // ### Sahpes used by the result
+                        // ##################################
                         for (int r = 0; r < selJobSolvRes.m_shpsAlterns.size(); ++r) {
                             ImGui::BeginGroup();
 
@@ -809,6 +935,7 @@ int main(int, char **) {
                     }
                 }
             }
+
             // ##################################
             // ### Logging
             // ##################################
