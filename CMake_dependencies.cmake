@@ -15,9 +15,8 @@ CPMAddPackage(
     URL https://github.com/NVIDIA/stdexec/archive/refs/tags/nvhpc-26.05.tar.gz
     URL_HASH SHA256=9d2396fecd604698c1eae58f0cb6e4517aa727013846240d1a7b2f35e49884dc
     EXCLUDE_FROM_ALL TRUE
-    NAME NAME stdexec
+    NAME stdexec
 )
-
 
 
 #####################################################################
@@ -33,6 +32,18 @@ CPMAddPackage(
 # if(Freetype_ADDED AND NOT TARGET Freetype::Freetype)
 #     add_library(Freetype::Freetype ALIAS freetype)
 # endif()
+
+
+#################################################################################################
+### SDL2 ... for when we will be able to compile with MSVC (when MSVC supports pack indexing) ###
+#################################################################################################
+# CPMAddPackage(
+#   NAME SDL2
+#   URL "https://github.com/libsdl-org/SDL/archive/refs/tags/release-2.32.10.tar.gz"
+#   URL_HASH SHA256=03f9d7c191a837525c9cda6406af2f2e48be02b5e7eb03d949cc9f1e9ca41c8b
+#   VERSION 2.32.10
+#   EXCLUDE_FROM_ALL TRUE
+# )
 
 
 # ImGui
