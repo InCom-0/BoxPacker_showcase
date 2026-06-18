@@ -180,6 +180,7 @@ int main(int, char **) {
     // ### Setting up data structures
     // ##################################
 
+    namespace incpack = incom::standard::solvers::packing;
     using namespace std::chrono_literals;
     std::string df{BOXPACKER_SAMPLE_INPUT};
 
@@ -194,7 +195,7 @@ int main(int, char **) {
     auto trees = trees_ORIG;
 
     auto shpsForBoxPacker_view = std::views::transform(shps.m_shapes, [](auto const &item) {
-        return incom::standard::solvers::packing::BoxPacker_2D<5>::calculate_rotFlipped(
+        return incpack::BoxPacker_2D<5>::calculate_rotFlipped(
             item.template conv_intoArr_bools<3uz, 3uz>());
     });
 
@@ -212,7 +213,7 @@ int main(int, char **) {
     auto                                 oneTree           = trees_ORIG.front();
     std::vector<incom::box_packer::Tree> planTrees;
 
-    namespace incpack = incom::standard::solvers::packing;
+
     exec::static_thread_pool tPool_work{8};
     auto                     tPool_workSch = tPool_work.get_scheduler();
 
