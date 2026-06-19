@@ -43,13 +43,13 @@
 
 // This example can also compile and run with Emscripten! See 'Makefile.emscripten' for details.
 #ifdef __EMSCRIPTEN__
-#include <boxpacker_private/emscripten_mainloop_stub.h>
+#include <boxpacker_private/emscripten_mainloop_stub.hpp>
 #endif
 
 #include <boxpacker_private/bp_handling.hpp>
-#include <boxpacker_private/emscripten_file_picker_async.h>
+#include <boxpacker_private/emscripten_file_picker_async.hpp>
 #include <boxpacker_private/incom_async.hpp>
-#include <boxpacker_private/incom_commons.h>
+#include <boxpacker_private/incom_commons.hpp>
 
 
 #ifdef __EMSCRIPTEN__

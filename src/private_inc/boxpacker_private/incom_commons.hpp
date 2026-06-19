@@ -8,7 +8,6 @@
 #include <vector>
 
 #include <ctre.hpp>
-
 #include <incstd/incstd_all.hpp>
 
 namespace incom {

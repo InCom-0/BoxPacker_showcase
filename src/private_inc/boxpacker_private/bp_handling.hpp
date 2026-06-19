@@ -8,7 +8,7 @@
 #include <stdexec/__detail/__execution_fwd.hpp>
 #include <utility>
 
-#include <boxpacker_private/incom_commons.h>
+#include <boxpacker_private/incom_commons.hpp>
 #include <incstd/incstd_all.hpp>
 #include <readerwriterqueue.h>
 
