@@ -127,8 +127,10 @@ target_link_libraries(boxpacker_showcase PRIVATE imgui imgui-sdl2 imgui-opengl3)
 target_link_libraries(boxpacker_showcase PRIVATE STDEXEC::stdexec readerwriterqueue)
 
 if(EMSCRIPTEN)
+    target_compile_options(boxpacker_showcase PUBLIC -sUSE_SDL=2)
     target_compile_options(boxpacker_showcase PUBLIC -pthread -fexceptions -fPIC)
     target_link_options(boxpacker_showcase PUBLIC
+        -sUSE_SDL=2
         -sWASM=1
         -sALLOW_MEMORY_GROWTH=1
         -sDISABLE_EXCEPTION_CATCHING=0
