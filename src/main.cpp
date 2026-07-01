@@ -195,8 +195,7 @@ int main(int, char **) {
     auto trees = trees_ORIG;
 
     auto shpsForBoxPacker_view = std::views::transform(shps.m_shapes, [](auto const &item) {
-        return incpack::BoxPacker_2D<5>::calculate_rotFlipped(
-            item.template conv_intoArr_bools<3uz, 3uz>());
+        return incpack::BoxPacker_2D<5>::calculate_rotFlipped(item.template conv_intoArr_bools<3uz, 3uz>());
     });
 
 
@@ -317,7 +316,7 @@ int main(int, char **) {
             {
 
                 ImGui::BeginChild("MainControls_window",
-                                  ImVec2(ImGui::GetContentRegionAvail().x * 0.33f, 12 * 26.0f + 20.f),
+                                  ImVec2(ImGui::GetContentRegionAvail().x * 0.33f, 13 * 26.0f + 20.f),
                                   ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
 
                 static size_t treeSelectedID = 0uz;
@@ -728,10 +727,14 @@ int main(int, char **) {
                 {
                     if (sel_jobID && sel_resID) {
                         ImGui::SameLine();
+                        ImGui::BeginChild("CurrentRunners_child", ImVec2(0.0f, 0.0f), ImGuiChildFlags_None,
+                                          ImGuiWindowFlags_HorizontalScrollbar);
                         ImGui::Dummy(
                             ImVec2(ImGui::GetTextLineHeightWithSpacing(), ImGui::GetTextLineHeightWithSpacing()));
 
                         ImGui::SameLine();
+
+
                         ImGui::BeginGroup();
 
                         auto const &selJobSolvRes = std::get<1>(jobs.at(sel_jobID.value()));
@@ -775,6 +778,7 @@ int main(int, char **) {
                         // ##################################
                         // ### Result view
                         // ##################################
+                        static float cellSize = 16.0f;
                         if (ImGui::BeginTable("OneResTable", selJobSolvRes.m_trees.at(sel_resID.value()).xDim,
                                               ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV |
                                                   ImGuiTableFlags_BordersH | ImGuiTableFlags_SizingFixedSame |
@@ -784,12 +788,12 @@ int main(int, char **) {
 
                             // Setup each column
                             for (int c = 0; c < selJobSolvRes.m_trees.at(sel_resID.value()).xDim; ++c) {
-                                ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 16.0f);
+                                ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, cellSize);
                             };
 
                             // Draw each square (ie. set the right background color)
                             for (int tRow = 1; tRow < selJobSolvRes.m_trees.at(sel_resID.value()).yDim + 1; tRow++) {
-                                ImGui::TableNextRow(ImGuiTableRowFlags_None, 16.0f);
+                                ImGui::TableNextRow(ImGuiTableRowFlags_None, cellSize);
                                 for (int tCol = 1; tCol < selJobSolvRes.m_trees.at(sel_resID.value()).xDim + 1;
                                      tCol++) {
 
@@ -852,6 +856,10 @@ int main(int, char **) {
                             if (ImGui::DragInt("##AnimSpeed", &animSpeedPerSec, 0.2f, 0, 1000, "iter/sec:  %d")) {
                                 animSpeedPerSec = std::max(animSpeedPerSec, 0);
                                 animC.set_speed(animSpeedPerSec);
+                            }
+
+                            if (ImGui::DragFloat("##CellSize", &cellSize, 0.02f, 1.0f, 64.0f, "cell size:  %.0f")) {
+                                cellSize = std::max(cellSize, 1.0f);
                             }
 
                             ImGui::PopItemWidth();
@@ -933,6 +941,7 @@ int main(int, char **) {
                         }
 
                         ImGui::EndGroup();
+                        ImGui::EndChild();
                     }
                 }
             }
