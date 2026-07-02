@@ -1,4 +1,5 @@
 CompileFlags:
+  CompilationDatabase: build/       # Search build/ directory for compile_commands.json
   BuiltinHeaders: QueryDriver
   Remove:
   - -fconcepts-diagnostics-depth=*
