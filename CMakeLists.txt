@@ -13,6 +13,8 @@ option(BUILD_SHARED_LIBS "Build shared libraries" OFF)
 option(CPM_USE_LOCAL_PACKAGES "Use local (usually system installed) packages for dependencies." ON)
 option(CPM_LOCAL_PACKAGES_ONLY "Forbid the build system from downloading missing dependencies." OFF)
 
+option(boxpacker_showcase_ENABLE_LTO "Request LTO pending support" OFF)
+
 option(boxpacker_showcase_STAGE_OUTPUTS "Stage build output artifacts into proper directory structure" ON)
 option(boxpacker_showcase_PORTABLE_LAYOUT "Use flat (Windows-like / portable) install layout" OFF)
 set(boxpacker_showcase_EMSCRIPTEN_PTHREAD_POOL_SIZE "16" CACHE STRING "Emscripten worker pool size used for pthreads")
@@ -49,22 +51,26 @@ include(CheckIPOSupported)
 check_ipo_supported(RESULT boxpacker_showcase_LTO OUTPUT boxpacker_showcase_LTO_OUTPUT)
 
 # Enable LTO if supported and only when NOT in debug mode
-if(boxpacker_showcase_LTO)
-    message(STATUS "LTO is supported")
-    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-        set(CMAKE_INTERPROCEDURAL_OPTIMIZATION FALSE)
-        message(STATUS "LTO is disabled because of Debug build")
-    elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-        set(CMAKE_INTERPROCEDURAL_OPTIMIZATION FALSE)
-        message(STATUS "LTO is disabled on MacOS")
-    else()
-        set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
-        message(STATUS "LTO is enabled")
-        # set_property(TARGET foo PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
-    endif()
+if(boxpacker_showcase_ENABLE_LTO)
+    if(boxpacker_showcase_LTO)
+        message(STATUS "LTO is supported")
+        if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+            set(CMAKE_INTERPROCEDURAL_OPTIMIZATION FALSE)
+            message(STATUS "LTO is forced disabled because of Debug build")
+        elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+            set(CMAKE_INTERPROCEDURAL_OPTIMIZATION FALSE)
+            message(STATUS "LTO is forced disabled on MacOS")
+        else()
+            set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
+            message(STATUS "LTO is enabled")
+            # set_property(TARGET foo PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+        endif()
 
+    else()
+        message(WARNING "LTO is NOT supported: ${boxpacker_showcase_LTO_OUTPUT}")
+    endif()
 else()
-    message(WARNING "LTO is NOT supported: ${boxpacker_showcase_LTO_OUTPUT}")
+    message(STATUS "LTO is disabled by the user")
 endif()
 
 
@@ -130,6 +136,9 @@ if(EMSCRIPTEN)
     target_compile_options(boxpacker_showcase PUBLIC -sUSE_SDL=2)
     target_compile_options(boxpacker_showcase PUBLIC -pthread -fexceptions -fPIC)
     target_link_options(boxpacker_showcase PUBLIC
+        --emrun
+        -sEXPORTED_RUNTIME_METHODS=[ccall,HEAPU8]
+        -sEXPORTED_FUNCTIONS=[_main,_malloc,_free]
         -sWASM=1
         -sALLOW_MEMORY_GROWTH=1
         -sDISABLE_EXCEPTION_CATCHING=0

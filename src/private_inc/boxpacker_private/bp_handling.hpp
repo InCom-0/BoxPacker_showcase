@@ -4,6 +4,7 @@
 #include <array>
 #include <concepts>
 #include <cstdint>
+#include <format>
 #include <mdspan>
 #include <stdexec/__detail/__execution_fwd.hpp>
 #include <utility>
@@ -223,16 +224,71 @@ struct SolveResStore {
 };
 
 
-inline std::tuple<ShapesStorage, std::vector<Tree>> get_integratedSampleData(std::string &df) {
-    std::tuple<ShapesStorage, std::vector<Tree>> res;
+inline std::tuple<std::string, ShapesStorage, std::vector<Tree>> get_integratedSampleData(std::string &df) {
+    static int counter = 0;
 
-    ShapesStorage     &shps  = std::get<0>(res);
-    std::vector<Tree> &trees = std::get<1>(res);
+    std::tuple<std::string, ShapesStorage, std::vector<Tree>> res;
+
+    std::get<0>(res)         = std::format("Integrated: {}", counter++);
+    ShapesStorage     &shps  = std::get<1>(res);
+    std::vector<Tree> &trees = std::get<2>(res);
 
     auto any_ctre    = ctre::search<R"(.+)">;
     auto d_ctre      = ctre::search<R"(\d+)">;
     auto shapeHeader = ctre::search<R"(^\d+:)">;
     auto input       = incom::aoc::parseInputUsingCTRE::processFile(df, any_ctre).front();
+
+
+    std::optional<size_t> lastShapeLine = std::nullopt;
+
+    for (size_t lineID = 0; lineID < input.size(); ++lineID) {
+        if (input.at(lineID).size() <= 1uz) {
+            lastShapeLine = std::nullopt;
+            continue;
+        }
+
+        else if (shapeHeader(input.at(lineID).begin(), input.at(lineID).end())) {
+            lastShapeLine = 0;
+            shps.m_shapes.emplace_back();
+        }
+
+        else if (std::ranges::all_of(input.at(lineID), [](auto const chr) { return ((chr == '#') or (chr == '.')); })) {
+            for (auto oneChr : input.at(lineID)) { shps.m_shapes.back().m_data.push_back(oneChr == '#' ? 1 : 0); }
+        }
+
+        // for (size_t shape_line = 0; shape_line < 3; ++shape_line) {
+        //     lineID++;
+        //     for (auto oneChr : std::views::take(input.at(lineID), 3)) {
+        //         shps.m_shapes.back().m_data.push_back(oneChr == '#' ? 1 : 0);
+        //     }
+        // }
+
+
+        else if (input.at(lineID).size() > 5) {
+            auto prsRes = incom::aoc::parseInputUsingCTRE::processOneLineRPToneVect(input.at(lineID), d_ctre);
+            trees.push_back(
+                Tree{.yDim = std::stoi(prsRes.at(0)),
+                     .xDim = std::stoi(prsRes.at(1)),
+                     .reqdShapes{std::stoull(prsRes.at(2)), std::stoull(prsRes.at(3)), std::stoull(prsRes.at(4)),
+                                 std::stoull(prsRes.at(5)), std::stoull(prsRes.at(6)), std::stoull(prsRes.at(7))}});
+        }
+        else {}
+    }
+
+    return res;
+}
+inline std::tuple<std::string, ShapesStorage, std::vector<Tree>> get_externalSampleData(std::string &data_asString) {
+    std::tuple<std::string, ShapesStorage, std::vector<Tree>> res;
+
+    // std::string       &name  = std::get<0>(res);
+    ShapesStorage     &shps  = std::get<1>(res);
+    std::vector<Tree> &trees = std::get<2>(res);
+
+    auto untilNewLine = ctre::search<R"([^\n]+)">;
+    auto any_ctre     = ctre::search<R"(.+)">;
+    auto d_ctre       = ctre::search<R"(\d+)">;
+    auto shapeHeader  = ctre::search<R"(^\d+:)">;
+    auto input        = incom::aoc::parseInputUsingCTRE::processOneLineRPT(data_asString, untilNewLine).front();
 
 
     for (size_t lineID = 0; lineID < input.size(); ++lineID) {
@@ -277,14 +333,12 @@ inline constexpr auto bp_asyncExecute =
         solver.add_toFrontier_allCorners();
 
         while (auto solvRes = solver.solve_oneStep()) {
-            if (stopTokOpt && stopTokOpt->stop_requested()) { co_await stdexec::just_stopped(); }
-
             size_t sleepFor = 0;
-            auto   rrr      = std::tuple_cat(std::make_tuple(treeID), solvRes.value());
             while (not q.try_enqueue(std::tuple_cat(std::make_tuple(treeID), solvRes.value()))) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(std::min(sleepFor++, 100uz)));
                 if (sleepFor > 1000) { co_await stdexec::just_error(99); }
-            };
+            }
+            if (stopTokOpt && stopTokOpt->stop_requested()) { co_await stdexec::just_stopped(); }
         }
 
         ++treeID;

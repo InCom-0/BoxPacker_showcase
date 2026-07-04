@@ -47,7 +47,8 @@
 #endif
 
 #include <boxpacker_private/bp_handling.hpp>
-#include <boxpacker_private/emscripten_file_picker_async.hpp>
+// #include <boxpacker_private/emscripten_file_picker_async.hpp>
+#include <boxpacker_private/emscripten_browser_file.hpp>
 #include <boxpacker_private/incom_async.hpp>
 #include <boxpacker_private/incom_commons.hpp>
 
@@ -66,10 +67,14 @@ struct UploadedFile {
 
 static std::deque<UploadedFile> g_uploaded_files;
 
-void handle_upload_file(std::string const &filename, std::string const &mime_type, std::string_view buffer, void *) {
-    // define a handler to process the file
-    // ...
+void handle_upload_file(std::string const &filename, std::string const &mime_type, std::string_view buffer,
+                        void *callback_data) {
+    auto &cb_data{*reinterpret_cast<
+        std::vector<std::tuple<std::string, incom::box_packer::ShapesStorage, std::vector<incom::box_packer::Tree>>> *>(
+        callback_data)};
     g_uploaded_files.push_back(UploadedFile{filename, mime_type, std::string(buffer.data(), buffer.size())});
+    cb_data.push_back(incom::box_packer::get_externalSampleData(g_uploaded_files.back().data));
+    std::get<0>(cb_data.back()) = filename;
 }
 
 // Main code
@@ -184,7 +189,10 @@ int main(int, char **) {
     using namespace std::chrono_literals;
     std::string df{BOXPACKER_SAMPLE_INPUT};
 
-    auto const [shapes_ORIG, trees_ORIG] = incom::box_packer::get_integratedSampleData(df);
+    std::vector<std::tuple<std::string, incom::box_packer::ShapesStorage, std::vector<incom::box_packer::Tree>>>
+        sampleInputs{incom::box_packer::get_integratedSampleData(df)};
+
+    const auto &[_, shapes_ORIG, trees_ORIG] = sampleInputs.front();
 
     if (trees_ORIG.empty()) {
         std::cerr << "Failed to load sample input from: " << df << '\n';
@@ -201,12 +209,17 @@ int main(int, char **) {
 
     // Pre-computing the 'example' labels
     std::vector<std::string> treeLabels;
-    for (size_t id = 0uz; auto const &oneTree : trees) {
-        treeLabels.push_back(std::format("{0:}: {1:}x{2:} (", id, oneTree.yDim, oneTree.xDim));
-        treeLabels.back().append(std::format("{:n}", oneTree.reqdShapes));
-        treeLabels.back().push_back(')');
-        ++id;
-    }
+    auto                     updateTreeLabels = [&]() {
+        if (not treeLabels.empty()) { treeLabels.clear(); }
+        for (size_t id = 0uz; auto const &oneTree : trees) {
+            treeLabels.push_back(std::format("{0:}: {1:}x{2:} (", id, oneTree.yDim, oneTree.xDim));
+            treeLabels.back().append(std::format("{:n}", oneTree.reqdShapes));
+            treeLabels.back().push_back(')');
+            ++id;
+        }
+    };
+    updateTreeLabels();
+
 
     size_t                               oneShape_sideSize = 3uz; // Change later so that it can adjusted manually
     auto                                 oneTree           = trees_ORIG.front();
@@ -304,6 +317,14 @@ int main(int, char **) {
             ImGui::Begin("AOC 2025 day 12 solver", 0,
                          ImGuiWindowFlags_NoTitleBar); // Create a window called "Hello, world!" and append into it.
 
+            // ImGui::Text("%zu", sampleInputs.size());
+            // if (sampleInputs.size() > 1) {
+            //     auto const &uploadedShapes = std::get<1>(sampleInputs.at(1));
+            //     auto const &uploadedTree   = std::get<2>(sampleInputs.at(1));
+            //     ImGui::Text("%zu", uploadedShapes.m_shapes.size());
+            //     ImGui::Text("%zu", uploadedTree.size());
+            // }
+
             ImGui::TextWrapped("Interactive heuristic solver and solution explorer for Advent of Code 2025 day 12.");
             ImGui::TextWrapped("It does not find the 'provably best' solution. It finds 'pretty good' solutions at "
                                "lightning speed using a heuristic process resembling how a human might approach this.");
@@ -319,11 +340,27 @@ int main(int, char **) {
                                   ImVec2(ImGui::GetContentRegionAvail().x * 0.33f, 13 * 26.0f + 20.f),
                                   ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
 
-                static size_t treeSelectedID = 0uz;
+                static size_t treeSelectedID  = 0uz;
+                static size_t inputSelectedID = 0uz;
                 // ### Plan control
                 {
                     ImGui::SeparatorText("Main Controls");
-                    if (ImGui::BeginCombo("Select sample 🗑", treeLabels[treeSelectedID].data(), 0)) {
+
+                    if (ImGui::BeginCombo("<- Select input", std::get<0>(sampleInputs[inputSelectedID]).data(), 0)) {
+                        for (int n = 0; n < sampleInputs.size(); n++) {
+                            const bool is_selected = (inputSelectedID == n);
+                            if (ImGui::Selectable(std::get<0>(sampleInputs.at(n)).data(), is_selected)) {
+                                inputSelectedID = n;
+                                shps            = std::get<1>(sampleInputs.at(n));
+                                trees           = std::get<2>(sampleInputs.at(n));
+                                updateTreeLabels();
+                                treeSelectedID = 0uz;
+                            }
+                        }
+                        ImGui::EndCombo();
+                    }
+
+                    if (ImGui::BeginCombo("<- Select sample", treeLabels[treeSelectedID].data(), 0)) {
                         static ImGuiTextFilter filter;
                         if (ImGui::IsWindowAppearing()) {
                             ImGui::SetKeyboardFocusHere();
@@ -346,8 +383,14 @@ int main(int, char **) {
                     ImGui::SameLine();
                     if (ImGui::Button("Add all to plan")) { planTrees.append_range(trees); }
                     ImGui::SameLine();
-                    if (ImGui::Button("File diagtest")) {
-                        emscripten_file_picker_async::upload(".png,.jpg,.jpeg", handle_upload_file);
+                    if (ImGui::Button("Upload input")) {
+
+                        std::string my_data{"hello world"};
+                        auto        my_data_ptr{reinterpret_cast<void *>(&my_data)};
+
+                        // pass callback data to the handler
+                        emscripten_browser_file::upload(".txt", handle_upload_file, &sampleInputs);
+                        // emscripten_file_picker_async::upload(".png,.jpg,.jpeg", handle_upload_file);
                     }
 
                     ImGui::Dummy(ImGui::GetItemRectSize());
