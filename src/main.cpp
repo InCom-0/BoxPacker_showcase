@@ -327,6 +327,36 @@ int main(int, char **) {
                                "lightning speed using a heuristic process resembling how a human might approach this.");
             ImGui::Dummy(ImGui::GetItemRectSize());
 
+            struct AnimControl {
+                std::chrono::nanoseconds m_oneIterDuration = std::chrono::nanoseconds::max();
+                std::chrono::nanoseconds m_elapsedDuration = std::chrono::nanoseconds::zero();
+                bool                     m_beingAnimated   = false;
+
+                std::chrono::time_point<std::chrono::high_resolution_clock> m_start =
+                    std::chrono::high_resolution_clock::now();
+
+                bool can_step() {
+                    return (m_oneIterDuration == std::chrono::nanoseconds::max()
+                                ? false
+                                : ((m_start + m_elapsedDuration + m_oneIterDuration) <=
+                                   std::chrono::high_resolution_clock::now()));
+                }
+                void do_oneStep() { m_elapsedDuration += m_oneIterDuration; }
+
+                void start() {
+                    m_start           = std::chrono::high_resolution_clock::now();
+                    m_elapsedDuration = std::chrono::nanoseconds::zero();
+                    m_beingAnimated   = true;
+                }
+
+                void terminate() { m_beingAnimated = false; }
+
+                void set_speed(int itersPerSec) {
+                    m_oneIterDuration = itersPerSec ? std::chrono::nanoseconds(1'000'000'000 / itersPerSec)
+                                                    : std::chrono::nanoseconds::max();
+                }
+            };
+            static AnimControl animC{.m_oneIterDuration = std::chrono::nanoseconds(1'000'000'000 / 40)};
 
             // ##################################
             // ### Main Controls
@@ -679,37 +709,6 @@ int main(int, char **) {
             {
                 static int rewindSlider = 0;
 
-                struct AnimControl {
-                    std::chrono::nanoseconds m_oneIterDuration = std::chrono::nanoseconds::max();
-                    std::chrono::nanoseconds m_elapsedDuration = std::chrono::nanoseconds::zero();
-                    bool                     m_beingAnimated   = false;
-
-                    std::chrono::time_point<std::chrono::high_resolution_clock> m_start =
-                        std::chrono::high_resolution_clock::now();
-
-                    bool can_step() {
-                        return (m_oneIterDuration == std::chrono::nanoseconds::max()
-                                    ? false
-                                    : ((m_start + m_elapsedDuration + m_oneIterDuration) <=
-                                       std::chrono::high_resolution_clock::now()));
-                    }
-                    void do_oneStep() { m_elapsedDuration += m_oneIterDuration; }
-
-                    void start() {
-                        m_start           = std::chrono::high_resolution_clock::now();
-                        m_elapsedDuration = std::chrono::nanoseconds::zero();
-                        m_beingAnimated   = true;
-                    }
-
-                    void terminate() { m_beingAnimated = false; }
-
-                    void set_speed(int itersPerSec) {
-                        m_oneIterDuration = itersPerSec ? std::chrono::nanoseconds(1'000'000'000 / itersPerSec)
-                                                        : std::chrono::nanoseconds::max();
-                    }
-                };
-
-                static AnimControl animC{.m_oneIterDuration = std::chrono::nanoseconds(1'000'000'000 / 40)};
 
                 // ##################################
                 // ### Runners to view
