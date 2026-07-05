@@ -192,15 +192,12 @@ int main(int, char **) {
     std::vector<std::tuple<std::string, incom::box_packer::ShapesStorage, std::vector<incom::box_packer::Tree>>>
         sampleInputs{incom::box_packer::get_integratedSampleData(df)};
 
-    const auto &[_, shapes_ORIG, trees_ORIG] = sampleInputs.front();
+    auto [_, shps, trees] = sampleInputs.front();
 
-    if (trees_ORIG.empty()) {
+    if (trees.empty()) {
         std::cerr << "Failed to load sample input from: " << df << '\n';
         return 1;
     }
-
-    auto shps  = shapes_ORIG;
-    auto trees = trees_ORIG;
 
     auto shpsForBoxPacker_view = std::views::transform(shps.m_shapes, [](auto const &item) {
         return incpack::BoxPacker_2D<5>::calculate_rotFlipped(item.template conv_intoArr_bools<3uz, 3uz>());
@@ -222,7 +219,7 @@ int main(int, char **) {
 
 
     size_t                               oneShape_sideSize = 3uz; // Change later so that it can adjusted manually
-    auto                                 oneTree           = trees_ORIG.front();
+    auto                                 oneTree           = trees.front();
     std::vector<incom::box_packer::Tree> planTrees;
 
 
@@ -388,8 +385,11 @@ int main(int, char **) {
                         std::string my_data{"hello world"};
                         auto        my_data_ptr{reinterpret_cast<void *>(&my_data)};
 
+
+#if defined(__EMSCRIPTEN__)
                         // pass callback data to the handler
                         emscripten_browser_file::upload(".txt", handle_upload_file, &sampleInputs);
+#endif
                         // emscripten_file_picker_async::upload(".png,.jpg,.jpeg", handle_upload_file);
                     }
 
@@ -400,7 +400,7 @@ int main(int, char **) {
                 {
                     ImGui::SeparatorText("Convenience helpers");
                     if (ImGui::Button("Selected sample -> custom")) {
-                        shps    = shapes_ORIG;
+                        shps    = std::get<1>(sampleInputs.at(inputSelectedID));
                         oneTree = trees.at(treeSelectedID);
                     }
                     if (ImGui::Button("Clear plan")) { planTrees.clear(); }

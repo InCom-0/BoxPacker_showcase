@@ -236,44 +236,56 @@ inline std::tuple<std::string, ShapesStorage, std::vector<Tree>> get_integratedS
     auto any_ctre    = ctre::search<R"(.+)">;
     auto d_ctre      = ctre::search<R"(\d+)">;
     auto shapeHeader = ctre::search<R"(^\d+:)">;
+    auto treeHeader  = ctre::search<R"(^\d+x\d+)">;
     auto input       = incom::aoc::parseInputUsingCTRE::processFile(df, any_ctre).front();
 
 
     std::optional<size_t> lastShapeLine = std::nullopt;
 
     for (size_t lineID = 0; lineID < input.size(); ++lineID) {
-        if (input.at(lineID).size() <= 1uz) {
-            lastShapeLine = std::nullopt;
-            continue;
-        }
-
-        else if (shapeHeader(input.at(lineID).begin(), input.at(lineID).end())) {
+        if (shapeHeader(input.at(lineID).begin(), input.at(lineID).end())) {
             lastShapeLine = 0;
             shps.m_shapes.emplace_back();
         }
-
-        else if (std::ranges::all_of(input.at(lineID), [](auto const chr) { return ((chr == '#') or (chr == '.')); })) {
-            for (auto oneChr : input.at(lineID)) { shps.m_shapes.back().m_data.push_back(oneChr == '#' ? 1 : 0); }
-        }
-
-        // for (size_t shape_line = 0; shape_line < 3; ++shape_line) {
-        //     lineID++;
-        //     for (auto oneChr : std::views::take(input.at(lineID), 3)) {
-        //         shps.m_shapes.back().m_data.push_back(oneChr == '#' ? 1 : 0);
-        //     }
-        // }
-
-
-        else if (input.at(lineID).size() > 5) {
-            auto prsRes = incom::aoc::parseInputUsingCTRE::processOneLineRPToneVect(input.at(lineID), d_ctre);
+        else if (treeHeader(input.at(lineID).begin(), input.at(lineID).end())) {
+            auto prsRes = incom::aoc::parseInputUsingCTRE::processOneLineRPT(input.at(lineID), d_ctre).front();
             trees.push_back(
                 Tree{.yDim = std::stoi(prsRes.at(0)),
                      .xDim = std::stoi(prsRes.at(1)),
                      .reqdShapes{std::stoull(prsRes.at(2)), std::stoull(prsRes.at(3)), std::stoull(prsRes.at(4)),
                                  std::stoull(prsRes.at(5)), std::stoull(prsRes.at(6)), std::stoull(prsRes.at(7))}});
         }
-        else {}
+        else if (lastShapeLine) {
+            for (auto oneChr : input.at(lineID)) {
+                if (oneChr == '#') { shps.m_shapes.back().m_data.push_back(1); }
+                else if (oneChr == '.') { shps.m_shapes.back().m_data.push_back(0); }
+            }
+        }
+        else { lastShapeLine = std::nullopt; }
     }
+
+
+    // for (size_t lineID = 0; lineID < input.size(); ++lineID) {
+    //     if (shapeHeader(input.at(lineID).begin(), input.at(lineID).end())) {
+    //         // if (input.at(lineID).size() == 3) {
+    //         shps.m_shapes.emplace_back();
+    //         for (size_t shape_line = 0; shape_line < 3; ++shape_line) {
+    //             lineID++;
+    //             for (auto oneChr : std::views::take(input.at(lineID), 3)) {
+    //                 shps.m_shapes.back().m_data.push_back(oneChr == '#' ? 1 : 0);
+    //             }
+    //         }
+    //     }
+    //     if (input.at(lineID).size() > 5) {
+    //         auto prsRes = incom::aoc::parseInputUsingCTRE::processOneLine(input.at(lineID), d_ctre, d_ctre, d_ctre,
+    //                                                                       d_ctre, d_ctre, d_ctre, d_ctre, d_ctre);
+    //         trees.push_back(
+    //             Tree{.yDim = std::stoi(prsRes.at(0)),
+    //                  .xDim = std::stoi(prsRes.at(1)),
+    //                  .reqdShapes{std::stoull(prsRes.at(2)), std::stoull(prsRes.at(3)), std::stoull(prsRes.at(4)),
+    //                              std::stoull(prsRes.at(5)), std::stoull(prsRes.at(6)), std::stoull(prsRes.at(7))}});
+    //     }
+    // }
 
     return res;
 }

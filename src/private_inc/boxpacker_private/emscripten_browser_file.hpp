@@ -2,6 +2,8 @@
 
 #include <string>
 #include <string_view>
+
+#if defined(__EMSCRIPTEN__)
 #include <emscripten.h>
 
 #define _EM_JS_INLINE(ret, c_name, js_name, params, code)                          \
@@ -150,3 +152,4 @@ EMSCRIPTEN_KEEPALIVE inline int upload_file_return(char const *filename, char co
 }
 
 }
+#endif
