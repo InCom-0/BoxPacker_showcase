@@ -105,6 +105,13 @@ if(EMSCRIPTEN)
         "SHELL:--preload-file ${boxpacker_showcase_EMSCRIPTEN_SAMPLE_INPUT}@/data/BoxPacker_sample_input.txt"
         "-sALLOW_MEMORY_GROWTH=1"
         "$<$<CONFIG:Debug>:-sASSERTIONS=2>")
+
+    add_custom_command(TARGET boxpacker_showcase POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_SOURCE_DIR}/web/coi-serviceworker.js"
+        "$<TARGET_FILE_DIR:boxpacker_showcase>/coi-serviceworker.js"
+        VERBATIM
+    )
 endif()
 
 
