@@ -136,7 +136,7 @@ if(EMSCRIPTEN)
     target_compile_options(boxpacker_showcase PUBLIC -sUSE_SDL=2)
     target_compile_options(boxpacker_showcase PUBLIC -pthread -fexceptions -fPIC)
     target_link_options(boxpacker_showcase PUBLIC
-        --emrun
+        -sUSE_SDL=2
         -sEXPORTED_RUNTIME_METHODS=[ccall,HEAPU8]
         -sEXPORTED_FUNCTIONS=[_main,_malloc,_free]
         -sWASM=1
