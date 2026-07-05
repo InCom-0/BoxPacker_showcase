@@ -47,20 +47,33 @@ CPMAddPackage(
 
 
 # ImGui
+# CMakeLists.txt from https://gist.githubusercontent.com/rokups/f771217b2d530d170db5cb1e08e9a8f4
+# 1) Download third-party CMakeLists (the above)
+# 2) Add imgui using CPM, while patching/splicing that CMakeLists into the source
+# 3) Proceed as if it had CMakeLists to begin with
+
+set(IMGUI_EXTERNAL_CMAKELISTS_FILE
+    "${CMAKE_BINARY_DIR}/_deps/imgui_rokups_CMakeLists.txt"
+)
+file(
+    DOWNLOAD
+    "https://gist.githubusercontent.com/rokups/f771217b2d530d170db5cb1e08e9a8f4/raw/4c2c14374ab878ca2f45daabfed4c156468e4e27/CMakeLists.txt"
+    "${IMGUI_EXTERNAL_CMAKELISTS_FILE}"
+    EXPECTED_HASH SHA256=fd62f69364ce13a4f7633a9b50ae6672c466bcc44be60c69c45c0c6e225bb086
+)
+
 CPMAddPackage(
     NAME imgui
     VERSION 1.92.8
     GITHUB_REPOSITORY ocornut/imgui
-    DOWNLOAD_ONLY TRUE
+    EXCLUDE_FROM_ALL TRUE
+    SYSTEM TRUE
+    PATCH_COMMAND
+        ${CMAKE_COMMAND} -E copy_if_different
+        "${IMGUI_EXTERNAL_CMAKELISTS_FILE}"
+        "<SOURCE_DIR>/CMakeLists.txt"
 )
-
-# CMakeLists.txt from https://gist.githubusercontent.com/rokups/f771217b2d530d170db5cb1e08e9a8f4
-file(
-    DOWNLOAD
-    "https://gist.githubusercontent.com/rokups/f771217b2d530d170db5cb1e08e9a8f4/raw/4c2c14374ab878ca2f45daabfed4c156468e4e27/CMakeLists.txt"
-    "${imgui_SOURCE_DIR}/CMakeLists.txt"
-    EXPECTED_HASH SHA256=fd62f69364ce13a4f7633a9b50ae6672c466bcc44be60c69c45c0c6e225bb086
-)
+unset(IMGUI_EXTERNAL_CMAKELISTS_FILE)
 
 # Options
 set(IMGUI_EXAMPLES FALSE)
@@ -79,8 +92,6 @@ set(IMGUI_IMPL_GLUT OFF)
 set(IMGUI_IMPL_VULKAN OFF)
 set(IMGUI_ENABLE_STDLIB_SUPPORT ON)
 set(IMGUI_IMPL_OPENGL2 OFF)
-
-add_subdirectory(${imgui_SOURCE_DIR} EXCLUDE_FROM_ALL SYSTEM)
 
 unset(IMGUI_IMPL_GLFW)
 unset(IMGUI_IMPL_GLUT)

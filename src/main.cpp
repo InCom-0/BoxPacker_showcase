@@ -453,6 +453,7 @@ int main(int, char **) {
                                                              std::vector(std::from_range, shpsForBoxPacker_view))));
 
                         sel_jobID = jobs.size() - 1;
+                        sel_resID = std::nullopt;
                     }
 
                     ImGui::SameLine();
