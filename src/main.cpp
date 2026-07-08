@@ -26,7 +26,7 @@
 
 #include <ankerl/unordered_dense.h>
 #include <incstd/console/colorschemes.hpp>
-#include <incstd/core/solvers.hpp>
+#include <boxpacker_private/solvers.hpp>
 #include <readerwriterqueue.h>
 
 
@@ -185,7 +185,7 @@ int main(int, char **) {
     // ### Setting up data structures
     // ##################################
 
-    namespace incpack = incom::standard::solvers::packing;
+    namespace incpack = incom::standard::solvers_TEMP::packing;
     using namespace std::chrono_literals;
     std::string df{BOXPACKER_SAMPLE_INPUT};
 
@@ -200,7 +200,7 @@ int main(int, char **) {
     }
 
     auto shpsForBoxPacker_view = std::views::transform(shps.m_shapes, [](auto const &item) {
-        return incpack::BoxPacker_2D<5>::calculate_rotFlipped(item.template conv_intoArr_bools<3uz, 3uz>());
+        return incpack::BoxPacker_2D::calculate_rotFlipped(item.template conv_intoArr_bools<3uz, 3uz>());
     });
 
 
@@ -380,6 +380,7 @@ int main(int, char **) {
                                 inputSelectedID = n;
                                 shps            = std::get<1>(sampleInputs.at(n));
                                 trees           = std::get<2>(sampleInputs.at(n));
+                                oneTree         = trees.front();
                                 updateTreeLabels();
                                 treeSelectedID = 0uz;
                             }
@@ -794,8 +795,10 @@ int main(int, char **) {
                         }
 
                         // Rewind slider
+                        static float cellSize = 16.0f;
                         ImGui::PushItemWidth(
-                            std::get<1>(jobs.at(sel_jobID.value())).m_trees.at(sel_resID.value()).xDim * 17.0f);
+                            std::get<1>(jobs.at(sel_jobID.value())).m_trees.at(sel_resID.value()).xDim * (cellSize +
+                            1.0));
                         if (ImGui::SliderInt("##int", &rewindSlider, 0,
                                              jobs.at(sel_jobID.value()).second.vecOfRes.at(sel_resID.value()).size())) {
                             rewindSlider = std::clamp(
@@ -821,7 +824,6 @@ int main(int, char **) {
                         // ##################################
                         // ### Result view
                         // ##################################
-                        static float cellSize = 16.0f;
                         if (ImGui::BeginTable("OneResTable", selJobSolvRes.m_trees.at(sel_resID.value()).xDim,
                                               ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV |
                                                   ImGuiTableFlags_BordersH | ImGuiTableFlags_SizingFixedSame |

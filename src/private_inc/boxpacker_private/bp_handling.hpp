@@ -11,6 +11,7 @@
 
 #include <boxpacker_private/incom_commons.hpp>
 #include <incstd/incstd_all.hpp>
+#include <boxpacker_private/solvers.hpp>
 #include <readerwriterqueue.h>
 
 #include <exec/async_scope.hpp>
@@ -26,9 +27,9 @@
 
 namespace incom::box_packer {
 
-namespace incpack = incom::standard::solvers::packing;
-using BP_Pos      = incpack::BoxPacker_2D<5>::Pos;
-using BP_PastRes  = incpack::BoxPacker_2D<5>::PastRes;
+namespace incpack = incom::standard::solvers_TEMP::packing;
+using BP_Pos      = incpack::BoxPacker_2D::Pos;
+using BP_PastRes  = incpack::BoxPacker_2D::PastRes;
 
 struct Shape {
     std::vector<uint32_t> m_data;
@@ -239,21 +240,25 @@ inline std::tuple<std::string, ShapesStorage, std::vector<Tree>> get_integratedS
     auto treeHeader  = ctre::search<R"(^\d+x\d+)">;
     auto input       = incom::aoc::parseInputUsingCTRE::processFile(df, any_ctre).front();
 
-
     std::optional<size_t> lastShapeLine = std::nullopt;
+    size_t                shapeCount    = 0uz;
+
 
     for (size_t lineID = 0; lineID < input.size(); ++lineID) {
         if (shapeHeader(input.at(lineID).begin(), input.at(lineID).end())) {
+            shapeCount++;
             lastShapeLine = 0;
             shps.m_shapes.emplace_back();
         }
         else if (treeHeader(input.at(lineID).begin(), input.at(lineID).end())) {
             auto prsRes = incom::aoc::parseInputUsingCTRE::processOneLineRPT(input.at(lineID), d_ctre).front();
-            trees.push_back(
-                Tree{.yDim = std::stoi(prsRes.at(0)),
-                     .xDim = std::stoi(prsRes.at(1)),
-                     .reqdShapes{std::stoull(prsRes.at(2)), std::stoull(prsRes.at(3)), std::stoull(prsRes.at(4)),
-                                 std::stoull(prsRes.at(5)), std::stoull(prsRes.at(6)), std::stoull(prsRes.at(7))}});
+            trees.push_back(Tree{.yDim       = std::stoi(prsRes.at(0)),
+                                 .xDim       = std::stoi(prsRes.at(1)),
+                                 .reqdShapes = (std::views::iota(2uz) | std::views::take(shapeCount) |
+                                                std::views::transform([&](auto inputID) {
+                                                    return static_cast<std::size_t>(std::stoull(prsRes.at(inputID)));
+                                                }) |
+                                                std::ranges::to<std::vector>())});
         }
         else if (lastShapeLine) {
             for (auto oneChr : input.at(lineID)) {
@@ -263,29 +268,6 @@ inline std::tuple<std::string, ShapesStorage, std::vector<Tree>> get_integratedS
         }
         else { lastShapeLine = std::nullopt; }
     }
-
-
-    // for (size_t lineID = 0; lineID < input.size(); ++lineID) {
-    //     if (shapeHeader(input.at(lineID).begin(), input.at(lineID).end())) {
-    //         // if (input.at(lineID).size() == 3) {
-    //         shps.m_shapes.emplace_back();
-    //         for (size_t shape_line = 0; shape_line < 3; ++shape_line) {
-    //             lineID++;
-    //             for (auto oneChr : std::views::take(input.at(lineID), 3)) {
-    //                 shps.m_shapes.back().m_data.push_back(oneChr == '#' ? 1 : 0);
-    //             }
-    //         }
-    //     }
-    //     if (input.at(lineID).size() > 5) {
-    //         auto prsRes = incom::aoc::parseInputUsingCTRE::processOneLine(input.at(lineID), d_ctre, d_ctre, d_ctre,
-    //                                                                       d_ctre, d_ctre, d_ctre, d_ctre, d_ctre);
-    //         trees.push_back(
-    //             Tree{.yDim = std::stoi(prsRes.at(0)),
-    //                  .xDim = std::stoi(prsRes.at(1)),
-    //                  .reqdShapes{std::stoull(prsRes.at(2)), std::stoull(prsRes.at(3)), std::stoull(prsRes.at(4)),
-    //                              std::stoull(prsRes.at(5)), std::stoull(prsRes.at(6)), std::stoull(prsRes.at(7))}});
-    //     }
-    // }
 
     return res;
 }
@@ -300,30 +282,62 @@ inline std::tuple<std::string, ShapesStorage, std::vector<Tree>> get_externalSam
     auto any_ctre     = ctre::search<R"(.+)">;
     auto d_ctre       = ctre::search<R"(\d+)">;
     auto shapeHeader  = ctre::search<R"(^\d+:)">;
+    auto treeHeader   = ctre::search<R"(^\d+x\d+)">;
     auto input        = incom::aoc::parseInputUsingCTRE::processOneLineRPT(data_asString, untilNewLine).front();
 
 
+    std::optional<size_t> lastShapeLine = std::nullopt;
+    size_t                shapeCount    = 0uz;
+
     for (size_t lineID = 0; lineID < input.size(); ++lineID) {
         if (shapeHeader(input.at(lineID).begin(), input.at(lineID).end())) {
-            // if (input.at(lineID).size() == 3) {
+            shapeCount++;
+            lastShapeLine = 0;
             shps.m_shapes.emplace_back();
-            for (size_t shape_line = 0; shape_line < 3; ++shape_line) {
-                lineID++;
-                for (auto oneChr : std::views::take(input.at(lineID), 3)) {
-                    shps.m_shapes.back().m_data.push_back(oneChr == '#' ? 1 : 0);
-                }
+        }
+        else if (treeHeader(input.at(lineID).begin(), input.at(lineID).end())) {
+            auto prsRes = incom::aoc::parseInputUsingCTRE::processOneLineRPT(input.at(lineID), d_ctre).front();
+            trees.push_back(Tree{.yDim       = std::stoi(prsRes.at(0)),
+                                 .xDim       = std::stoi(prsRes.at(1)),
+                                 .reqdShapes = (std::views::iota(2uz) | std::views::take(shapeCount) |
+                                                std::views::transform([&](auto inputID) {
+                                                    return static_cast<std::size_t>(std::stoull(prsRes.at(inputID)));
+                                                }) |
+                                                std::ranges::to<std::vector>())});
+        }
+        else if (lastShapeLine) {
+            for (auto oneChr : input.at(lineID)) {
+                if (oneChr == '#') { shps.m_shapes.back().m_data.push_back(1); }
+                else if (oneChr == '.') { shps.m_shapes.back().m_data.push_back(0); }
             }
         }
-        if (input.at(lineID).size() > 5) {
-            auto prsRes = incom::aoc::parseInputUsingCTRE::processOneLine(input.at(lineID), d_ctre, d_ctre, d_ctre,
-                                                                          d_ctre, d_ctre, d_ctre, d_ctre, d_ctre);
-            trees.push_back(
-                Tree{.yDim = std::stoi(prsRes.at(0)),
-                     .xDim = std::stoi(prsRes.at(1)),
-                     .reqdShapes{std::stoull(prsRes.at(2)), std::stoull(prsRes.at(3)), std::stoull(prsRes.at(4)),
-                                 std::stoull(prsRes.at(5)), std::stoull(prsRes.at(6)), std::stoull(prsRes.at(7))}});
-        }
+        else { lastShapeLine = std::nullopt; }
     }
+
+    // for (size_t lineID = 0; lineID < input.size(); ++lineID) {
+    //     if (shapeHeader(input.at(lineID).begin(), input.at(lineID).end())) {
+    //         // if (input.at(lineID).size() == 3) {
+    //         shps.m_shapes.emplace_back();
+    //         for (size_t shape_line = 0; shape_line < 3; ++shape_line) {
+    //             lineID++;
+    //             for (auto oneChr : std::views::take(input.at(lineID), 3)) {
+    //                 shps.m_shapes.back().m_data.push_back(oneChr == '#' ? 1 : 0);
+    //             }
+    //         }
+    //     }
+    //     if (input.at(lineID).size() > 5) {
+    //         auto prsRes = incom::aoc::parseInputUsingCTRE::processOneLine(input.at(lineID), d_ctre, d_ctre,
+    //         d_ctre,
+    //                                                                       d_ctre, d_ctre, d_ctre, d_ctre,
+    //                                                                       d_ctre);
+    //         trees.push_back(
+    //             Tree{.yDim = std::stoi(prsRes.at(0)),
+    //                  .xDim = std::stoi(prsRes.at(1)),
+    //                  .reqdShapes{std::stoull(prsRes.at(2)), std::stoull(prsRes.at(3)), std::stoull(prsRes.at(4)),
+    //                              std::stoull(prsRes.at(5)), std::stoull(prsRes.at(6)),
+    //                              std::stoull(prsRes.at(7))}});
+    //     }
+    // }
 
     return res;
 }
@@ -331,12 +345,12 @@ inline std::tuple<std::string, ShapesStorage, std::vector<Tree>> get_externalSam
 
 inline constexpr auto bp_asyncExecute =
     [](auto &sch, std::vector<incom::box_packer::Tree> const trees, auto const shpsToUse,
-       moodycamel::ReaderWriterQueue<std::tuple<size_t, incom::standard::solvers::packing::BoxPacker_2D<5>::Pos,
-                                                incom::standard::solvers::packing::BoxPacker_2D<5>::PastRes>> &q)
+       moodycamel::ReaderWriterQueue<std::tuple<size_t, incpack::BoxPacker_2D::Pos,
+                                                incpack::BoxPacker_2D::PastRes>> &q)
     -> exec::basic_task<void, experimental::execution::__task::inline_task_context<void>> {
     co_await stdexec::schedule(sch);
-    incom::standard::solvers::packing::BoxPacker_2D<5> solver(trees.front().yDim, trees.front().xDim, shpsToUse,
-                                                              trees.front().reqdShapes);
+    incpack::BoxPacker_2D solver(5, trees.front().yDim, trees.front().xDim, shpsToUse,
+                                 trees.front().reqdShapes);
 
     auto stopTokOpt = co_await stdexec::stopped_as_optional(stdexec::get_stop_token());
 

@@ -1,4 +1,4 @@
-include(cmake/CPM_0.42.3.cmake)
+include(cmake/CPM_0.43.1.cmake)
 
 
 CPMAddPackage("gh:InCom-0/incstd#main")
