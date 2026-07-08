@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstddef>
 #include <deque>
 #include <functional>
 #include <limits>
@@ -350,9 +351,9 @@ private:
                  size_t const firstTile_yPos = 0, size_t const firstTile_xPos = 0, pastResMap_t const &pastReslts = {})
         : m_sqsz(sqsz), m_shapeOLCount_full((2 * sqsz) - 1), m_shapeOLCount_border((2 * sqsz) - 3),
           m_shapeOLCount_inside((2 * sqsz) - 5), m_useableCount_perShape(shps_counts),
-          m_area((area_ySize + 2) * (area_xSize + 2), 0), m_areaView(m_area.data(), area_ySize + 2, area_xSize + 2),
+          m_area((area_ySize + 2) * (area_xSize + 2), 0), m_area_ySize(area_ySize + 2), m_area_xSize(area_xSize + 2),
           m_frontierTiles((area_ySize + 3 - sqsz) * (area_xSize + 3 - sqsz), frontierTilePossibs_t{}),
-          m_frontierTiles_view(m_frontierTiles.data(), (area_ySize + 3 - sqsz), (area_xSize + 3 - sqsz)),
+          m_frontier_ySz(area_ySize + 1 - m_sqsz), m_frontier_xSz(area_xSize + 1 - m_sqsz),
           m_firstTilePos(Pos{.y = static_cast<long long>(firstTile_yPos), .x = static_cast<long long>(firstTile_xPos)}),
           m_shapes_alterns(shps_alterns),
           m_shapesMaxEmpty(((sqsz - 2) * (sqsz - 2)) -
@@ -375,14 +376,14 @@ private:
         assert(m_sqsz > 2);
 
         {
-            size_t const areRows = m_areaView.extent(0);
-            size_t const areCols = m_areaView.extent(1);
+            auto area_view =
+                pf_mdspan<unsigned char, pf_dextents<size_t, 2>>(m_area.data(), m_area_ySize, m_area_xSize);
 
-            for (size_t rowID : {0uz, areRows - 1uz}) {
-                for (size_t colID = 0; colID < areCols; ++colID) { m_areaView[rowID, colID] = 1; }
+            for (size_t rowID : {0uz, m_area_ySize - 1uz}) {
+                for (size_t colID = 0; colID < m_area_xSize; ++colID) { area_view[rowID, colID] = 1; }
             }
-            for (size_t rowID = 1; rowID < (areRows - 1); ++rowID) {
-                for (size_t colID : {0uz, areCols - 1uz}) { m_areaView[rowID, colID] = 1; }
+            for (size_t rowID = 1; rowID < (m_area_ySize - 1); ++rowID) {
+                for (size_t colID : {0uz, m_area_xSize - 1uz}) { area_view[rowID, colID] = 1; }
             }
         }
 
@@ -409,52 +410,60 @@ private:
     size_t m_shapeOLCount_border = 0;
     size_t m_shapeOLCount_inside = 0;
 
-    std::vector<unsigned char>                       m_area;
-    pf_mdspan<unsigned char, pf_dextents<size_t, 2>> m_areaView;
-    Pos                                              m_firstTilePos;
-    std::vector<std::vector<Shape>>                  m_shapes_alterns;
-    size_t                                           m_shapesMaxEmpty = 0;
+    std::vector<unsigned char> m_area;
+    size_t                     m_area_ySize;
+    size_t                     m_area_xSize;
+
+    Pos                             m_firstTilePos;
+    std::vector<std::vector<Shape>> m_shapes_alterns;
+    size_t                          m_shapesMaxEmpty = 0;
 
     std::vector<size_t>                       m_useableCount_perShape;
     std::vector<double>                       m_shapesRatios_orig;
     incom::standard::random::FastPseudoRandom m_fprng;
 
-    pastResMap_t                                             m_pastComputed;
-    std::deque<Pos>                                          m_uncoverableFrontierPoss;
-    std::vector<frontierTilePossibs_t>                       m_frontierTiles;
-    pf_mdspan<frontierTilePossibs_t, pf_dextents<size_t, 2>> m_frontierTiles_view;
+    pastResMap_t                       m_pastComputed;
+    std::deque<Pos>                    m_uncoverableFrontierPoss;
+    std::vector<frontierTilePossibs_t> m_frontierTiles;
+    size_t                             m_frontier_ySz;
+    size_t                             m_frontier_xSz;
+
+    // pf_mdspan<frontierTilePossibs_t, pf_dextents<size_t, 2>> m_frontierTiles_view;
 
 public:
+    auto get_mdspanOfArea() const {
+        return pf_mdspan<const unsigned char, pf_dextents<size_t, 2>>(m_area.data(), m_area_ySize, m_area_xSize);
+    }
+    auto get_mdspanOfArea() {
+        return pf_mdspan<unsigned char, pf_dextents<size_t, 2>>(m_area.data(), m_area_ySize, m_area_xSize);
+    }
+
     std::string get_areaState() const {
         std::string                   toPrint{};
         constexpr std::array<char, 3> map{46, 35, 118};
 
-        for (size_t lineID = 0uz; lineID < m_areaView.extent(0); ++lineID) {
-            for (size_t colID = 0uz; colID < m_areaView.extent(1); ++colID) {
-                toPrint.push_back(map[m_areaView[lineID, colID]]);
+        auto area_view = get_mdspanOfArea();
+
+        for (size_t lineID = 0uz; lineID < m_area_ySize; ++lineID) {
+            for (size_t colID = 0uz; colID < m_area_xSize; ++colID) {
+                toPrint.push_back(map[area_view[lineID, colID]]);
             }
             toPrint.push_back('\n');
         }
         return toPrint;
     }
 
-    std::pair<size_t, size_t> get_areaSize() const { return {m_areaView.extent(0), m_areaView.extent(1)}; }
+    std::pair<size_t, size_t> get_areaSize() const { return {m_area_ySize, m_area_xSize}; }
 
     std::pair<size_t, size_t> get_areaSize_borderless() const {
-        return {m_areaView.extent(0) > 0 ? m_areaView.extent(0) - 1U : 0U,
-                m_areaView.extent(0) > 0 ? (m_areaView.extent(1) > 0 ? m_areaView.extent(1) : 0U) : 0U};
+        return {m_area_ySize > 0 ? m_area_ySize - 1U : 0U, (m_area_xSize > 0 ? m_area_xSize - 1U : 0U)};
     }
 
     std::pair<size_t, size_t> get_emptyFilled() const noexcept {
         std::pair<size_t, size_t> res{};
-
-        if (m_areaView.extent(0) < 2 or m_areaView.extent(1) < 2) {}
-        else {
-            for (size_t r = 1; r < m_areaView.extent(0) - 1; ++r) {
-                for (size_t c = 1; c < m_areaView.extent(1) - 1; ++c) {
-                    m_areaView[r, c] == 0 ? res.first++ : res.second++;
-                }
-            }
+        for (size_t id = 0uz; id < m_area.size(); ++id) {
+            res.first  += (m_area[id] == 0);
+            res.second += (m_area[id] != 0);
         }
         return res;
     }
@@ -503,20 +512,21 @@ public:
     void reset_area() noexcept {
 
         std::ranges::fill(m_area, 0);
-        size_t const areRows = m_areaView.extent(0);
-        size_t const areCols = m_areaView.extent(1);
+        auto areaView = get_mdspanOfArea();
 
-        for (size_t rowID : {0uz, areRows - 1uz}) {
-            for (size_t colID = 0; colID < areCols; ++colID) { m_areaView[rowID, colID] = 1; }
+        for (size_t rowID : {0uz, m_area_ySize - 1uz}) {
+            for (size_t colID = 0; colID < m_area_xSize; ++colID) { areaView[rowID, colID] = 1; }
         }
-        for (size_t rowID = 1; rowID < (areRows - 1); ++rowID) {
-            for (size_t colID : {0uz, areCols - 1uz}) { m_areaView[rowID, colID] = 1; }
+        for (size_t rowID = 1; rowID < (m_area_ySize - 1); ++rowID) {
+            for (size_t colID : {0uz, m_area_xSize - 1uz}) { areaView[rowID, colID] = 1; }
         }
     }
 
     void reset_area(size_t const area_ySize, size_t const area_xSize) {
-        m_area.resize((area_ySize + 2uz) * (area_xSize + 2uz));
-        m_areaView = decltype(m_areaView)(m_area.data(), area_ySize + 2uz, area_xSize + 2uz);
+        m_area_ySize = std::move(area_ySize);
+        m_area_xSize = std::move(area_xSize);
+
+        m_area.resize((m_area_ySize + 2uz) * (m_area_xSize + 2uz));
         reset_area();
     }
 
@@ -531,8 +541,10 @@ public:
         std::ranges::fill(m_frontierTiles, std::nullopt);
 
         // TODO: Delete the line below once verified working
-        auto &ft_possibs                                         = getOrCompute_possibsFor(firstTile);
-        m_frontierTiles_view[m_firstTilePos.y, m_firstTilePos.x] = std::ref(getOrCompute_possibsFor(firstTile));
+        // auto &ft_possibs                                         = getOrCompute_possibsFor(firstTile);
+
+        m_frontierTiles.at(m_firstTilePos.y * m) m_frontierTiles_view[m_firstTilePos.y, m_firstTilePos.x] =
+            std::ref(getOrCompute_possibsFor(firstTile));
     }
 
     void reset_frontier(Pos const &firstTilePos) {
