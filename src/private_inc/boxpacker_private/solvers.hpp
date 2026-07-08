@@ -1,12 +1,8 @@
 #pragma once
 
 #include <algorithm>
-#include <array>
 #include <cassert>
-#include <cstddef>
-#include <cstdint>
 #include <deque>
-#include <format>
 #include <functional>
 #include <limits>
 #include <mdspan>
@@ -16,6 +12,7 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
+
 
 #include <ankerl/unordered_dense.h>
 
@@ -58,6 +55,14 @@ class BoxPacker_2D {
 
 
 public:
+    // Forward declarations
+    struct Pos;
+    struct AlternID;
+    struct Shape;
+    struct OverlayRes;
+    struct PastRes;
+    struct ConsideredShapeOption;
+
     struct Pos {
         long long y = 0;
         long long x = 0;
@@ -72,52 +77,34 @@ public:
         auto operator<=>(AlternID const &) const = default;
     };
 
+
     struct Shape {
-        struct OverlayRes {
-            size_t sqsz = 0;
+        size_t                     m_sqsz = 0;
+        std::vector<unsigned char> m_matrix;
 
-            std::vector<std::vector<char>> res_matrix;
-
-            size_t pointsAdded        = 0;
-            size_t pointsOverlaid     = 0;
-            size_t bordersTouching    = 0;
-            size_t bordersNotTouching = 0;
-
-            size_t pointsTouching    = 0;
-            size_t pointsNotTouching = 0;
-
-            size_t gapsCount   = 0;
-            size_t shapesCount = 0;
-
-            double surfacePointsCovered_relative = 0.0;
-            double surfacePointsOpened_relative  = std::numeric_limits<double>::max();
-
-            double surfaceCovered_relative = 0.0;
-            double surfaceOpened_relative  = std::numeric_limits<double>::max();
-        };
-
-        size_t                         m_sqsz = 0;
-        std::vector<std::vector<char>> m_matrix;
-
-        Shape() = default;
-        explicit Shape(size_t sqsz) : m_sqsz(sqsz), m_matrix(sqsz, std::vector<char>(sqsz, 0)) {
-
-            auto sp    = std::mdspan(m_matrix.data(), 2, 2);
-            auto subsp = std::submdspan(sp, std::pair{0, 0}, std::pair{1, 1});
-
-            std::vector<int>                                matrix;
-            std::mdspan<int, std::dextents<std::size_t, 2>> view(matrix.data(), 3, 3);
-            auto inner = std::submdspan(view, std::pair{1, 1}, std::pair{2, 2});
+        static Shape make(size_t const sqsz) {
+            return Shape{.m_sqsz = sqsz, .m_matrix = std::vector<unsigned char>(sqsz * sqsz, 0)};
         }
 
+        // Shape &operator=(Shape const &) = default;
+        // Shape &operator=(Shape &&)      = default;
+
         auto operator<=>(Shape const &other) const = default;
+
+        auto get_mdspanOfSelf() const {
+            return pf_mdspan<const unsigned char, pf_dextents<size_t, 2>>(m_matrix.data(), m_sqsz, m_sqsz);
+        }
+        auto get_mdspanOfSelf() {
+            return pf_mdspan<unsigned char, pf_dextents<size_t, 2>>(m_matrix.data(), m_sqsz, m_sqsz);
+        }
 
         template <size_t N>
         static Shape from_inner(std::array<std::array<bool, N>, N> const &src, size_t sqsz) {
             assert(sqsz == N + 2);
-            Shape out(sqsz);
+            auto out        = Shape::make(sqsz);
+            auto matrixView = out.get_mdspanOfSelf();
             for (size_t r = 0; r < N; ++r) {
-                for (size_t c = 0; c < N; ++c) { out.m_matrix[r + 1][c + 1] = src[r][c] ? 1 : 0; }
+                for (size_t c = 0; c < N; ++c) { matrixView[r + 1, c + 1] = src[r][c] ? 1 : 0; }
             }
             return out;
         }
@@ -126,8 +113,9 @@ public:
         static Shape from_full(std::array<std::array<bool, N>, N> const &src, size_t sqsz) {
             assert(sqsz == N);
             Shape out(sqsz);
+            auto  matrixView = out.get_mdspanOfSelf();
             for (size_t r = 0; r < N; ++r) {
-                for (size_t c = 0; c < N; ++c) { out.m_matrix[r][c] = src[r][c] ? 1 : 0; }
+                for (size_t c = 0; c < N; ++c) { matrixView[r, c] = src[r][c] ? 1 : 0; }
             }
             return out;
         }
@@ -140,197 +128,101 @@ public:
         }
 
         size_t count_filled() const {
-            size_t count = 0;
-            for (size_t r = 0; r < m_sqsz; ++r) {
-                for (size_t c = 0; c < m_sqsz; ++c) { count += static_cast<size_t>(m_matrix[r][c] != 0); }
-            }
-            return count;
+            return std::ranges::count_if(m_matrix, [](auto oneCell) { return oneCell != 0; });
         }
 
         size_t count_filledBorderLess() const {
-            size_t count = 0;
+            size_t count      = 0;
+            auto   matrixView = get_mdspanOfSelf();
             if (m_sqsz < 3) { return 0; }
             for (size_t r = 1; r < (m_sqsz - 1); ++r) {
-                for (size_t c = 1; c < (m_sqsz - 1); ++c) { count += static_cast<size_t>(m_matrix[r][c] != 0); }
+                for (size_t c = 1; c < (m_sqsz - 1); ++c) { count += (matrixView[r, c] != 0); }
             }
             return count;
         }
 
-        OverlayRes compute_overlayWith(Shape const &other) const {
-            assert(m_sqsz == other.m_sqsz);
-            OverlayRes res{};
-            res.sqsz       = m_sqsz;
-            res.res_matrix = std::vector<std::vector<char>>(m_sqsz, std::vector<char>(m_sqsz, 0));
-
-            for (size_t r = 0; r < m_sqsz; ++r) {
-                for (size_t c = 0; c < m_sqsz; ++c) {
-                    res.pointsOverlaid   += (m_matrix[r][c] != 0) && (other.m_matrix[r][c] != 0);
-                    res.pointsAdded      += (m_matrix[r][c] == 0) && (other.m_matrix[r][c] != 0);
-                    res.res_matrix[r][c]  = (m_matrix[r][c] != 0 || other.m_matrix[r][c] != 0) ? 1 : 0;
-                }
-            }
-
-            Shape touch(m_sqsz);
-            Shape notTouch(m_sqsz);
-
-            for (size_t r = 1; r < m_sqsz - 1; ++r) {
-                for (size_t c = 1; c < m_sqsz - 1; ++c) {
-                    if (other.m_matrix[r][c] == 0) { continue; }
-
-                    res.bordersTouching += (m_matrix[r - 1][c] != 0) && (other.m_matrix[r - 1][c] == 0);
-                    res.bordersTouching += (m_matrix[r][c - 1] != 0) && (other.m_matrix[r][c - 1] == 0);
-                    res.bordersTouching += (m_matrix[r][c + 1] != 0) && (other.m_matrix[r][c + 1] == 0);
-                    res.bordersTouching += (m_matrix[r + 1][c] != 0) && (other.m_matrix[r + 1][c] == 0);
-
-                    touch.m_matrix[r - 1][c] |= (m_matrix[r - 1][c] != 0) && (other.m_matrix[r - 1][c] == 0);
-                    touch.m_matrix[r][c - 1] |= (m_matrix[r][c - 1] != 0) && (other.m_matrix[r][c - 1] == 0);
-                    touch.m_matrix[r][c + 1] |= (m_matrix[r][c + 1] != 0) && (other.m_matrix[r][c + 1] == 0);
-                    touch.m_matrix[r + 1][c] |= (m_matrix[r + 1][c] != 0) && (other.m_matrix[r + 1][c] == 0);
-
-                    res.bordersNotTouching += (m_matrix[r - 1][c] == 0) && (other.m_matrix[r - 1][c] == 0);
-                    res.bordersNotTouching += (m_matrix[r][c - 1] == 0) && (other.m_matrix[r][c - 1] == 0);
-                    res.bordersNotTouching += (m_matrix[r][c + 1] == 0) && (other.m_matrix[r][c + 1] == 0);
-                    res.bordersNotTouching += (m_matrix[r + 1][c] == 0) && (other.m_matrix[r + 1][c] == 0);
-
-                    notTouch.m_matrix[r - 1][c] |= (m_matrix[r - 1][c] == 0) && (other.m_matrix[r - 1][c] == 0);
-                    notTouch.m_matrix[r][c - 1] |= (m_matrix[r][c - 1] == 0) && (other.m_matrix[r][c - 1] == 0);
-                    notTouch.m_matrix[r][c + 1] |= (m_matrix[r][c + 1] == 0) && (other.m_matrix[r][c + 1] == 0);
-                    notTouch.m_matrix[r + 1][c] |= (m_matrix[r + 1][c] == 0) && (other.m_matrix[r + 1][c] == 0);
-                }
-            }
-
-            Shape gapPastMemo(m_sqsz);
-            Shape filledPastMemo(m_sqsz);
-            Shape curMemo(m_sqsz);
-
-            Pos curPos{.y = 0, .x = 0};
-
-            auto gapsRecLambda = [&](this auto const &self) -> bool {
-                if (res.res_matrix[curPos.y][curPos.x] != 0) { return true; }
-                if (curMemo.m_matrix[curPos.y][curPos.x] != 0) { return true; }
-                curMemo.m_matrix[curPos.y][curPos.x] = 1;
-
-                if (gapPastMemo.m_matrix[curPos.y][curPos.x] != 0) { return false; }
-                gapPastMemo.m_matrix[curPos.y][curPos.x] = 1;
-
-                for (long long row : {-1LL, 1LL}) {
-                    if (curPos.y + row < 0 || curPos.y + row >= static_cast<long long>(m_sqsz)) { continue; }
-                    curPos.y += row;
-                    if (! self()) { return false; }
-                    curPos.y -= row;
-                }
-                for (long long col : {-1LL, 1LL}) {
-                    if (curPos.x + col < 0 || curPos.x + col >= static_cast<long long>(m_sqsz)) { continue; }
-                    curPos.x += col;
-                    if (! self()) { return false; }
-                    curPos.x -= col;
-                }
-                return true;
-            };
-
-            auto filledRecLambda = [&](this auto const &self) -> bool {
-                if (res.res_matrix[curPos.y][curPos.x] == 0) { return true; }
-                if (curMemo.m_matrix[curPos.y][curPos.x] != 0) { return true; }
-                curMemo.m_matrix[curPos.y][curPos.x] = 1;
-
-                if (filledPastMemo.m_matrix[curPos.y][curPos.x] != 0) { return false; }
-                filledPastMemo.m_matrix[curPos.y][curPos.x] = 1;
-
-                for (long long row : {-1LL, 1LL}) {
-                    if (curPos.y + row < 0 || curPos.y + row >= static_cast<long long>(m_sqsz)) { continue; }
-                    curPos.y += row;
-                    if (! self()) { return false; }
-                    curPos.y -= row;
-                }
-                for (long long col : {-1LL, 1LL}) {
-                    if (curPos.x + col < 0 || curPos.x + col >= static_cast<long long>(m_sqsz)) { continue; }
-                    curPos.x += col;
-                    if (! self()) { return false; }
-                    curPos.x -= col;
-                }
-                return true;
-            };
-
-            for (size_t r = 0; r < m_sqsz; ++r) {
-                for (size_t c = 0; c < m_sqsz; ++c) {
-                    if (res.res_matrix[r][c] == 0 && gapPastMemo.m_matrix[r][c] == 0) {
-                        curPos.y       = static_cast<long long>(r);
-                        curPos.x       = static_cast<long long>(c);
-                        curMemo        = Shape(m_sqsz);
-                        res.gapsCount += gapsRecLambda();
-                    }
-                    if (res.res_matrix[r][c] != 0 && filledPastMemo.m_matrix[r][c] == 0) {
-                        curPos.y         = static_cast<long long>(r);
-                        curPos.x         = static_cast<long long>(c);
-                        curMemo          = Shape(m_sqsz);
-                        res.shapesCount += filledRecLambda();
-                    }
-                }
-            }
-
-            res.pointsTouching    = touch.count_filled();
-            res.pointsNotTouching = notTouch.count_filled();
-            double const denomP   = std::max(static_cast<double>(res.pointsTouching + res.pointsNotTouching), 1.0);
-            double const denomB   = std::max(static_cast<double>(res.bordersTouching + res.bordersNotTouching), 1.0);
-
-            res.surfacePointsCovered_relative = res.pointsTouching / denomP;
-            res.surfacePointsOpened_relative  = res.pointsNotTouching / denomP;
-
-            res.surfaceCovered_relative = res.bordersTouching / denomB;
-            res.surfaceOpened_relative  = res.bordersNotTouching / denomB;
-
-            return res;
-        }
+        OverlayRes compute_overlayWith(Shape const &other) const;
 
         std::vector<Shape> compute_alternsRotFlip() const {
-            namespace incmatrix = incom::standard::matrix;
+            // namespace incmatrix = incom::standard::matrix;
 
-            auto                                                                                m_matrix_cpy = m_matrix;
-            ankerl::unordered_dense::set<decltype(m_matrix_cpy), standard::hashing::XXH3Hasher> hlprMP;
+            auto shpCpy            = *this;
+            auto m_matrix_cpy_view = shpCpy.get_mdspanOfSelf();
+            ankerl::unordered_dense::set<Shape, standard::hashing::XXH3Hasher> hlprMP;
 
-            hlprMP.insert(m_matrix_cpy);
+            auto matriRotateLeft = [](auto &mdspn_square) -> void {
+                int sideLength = mdspn_square.extent(0) - 1;
+                if (sideLength < 1 || mdspn_square.extent(1) != sideLength) { return; }
+
+                int circles = (sideLength + 2) / 2;
+                for (int cir = 0; cir < circles; cir++) {
+                    for (int i = 0; i < sideLength - (2 * cir); ++i) {
+                        std::swap(mdspn_square[cir, cir + i], mdspn_square[cir + i, sideLength - cir]);
+                        std::swap(mdspn_square[cir + i, sideLength - cir],
+                                  mdspn_square[sideLength - cir, sideLength - cir - i]);
+                        std::swap(mdspn_square[sideLength - cir, sideLength - cir - i],
+                                  mdspn_square[sideLength - cir - i, cir]);
+                    }
+                }
+                return;
+            };
+
+            hlprMP.insert(shpCpy);
             for (int rot_i = 0; rot_i < 3; ++rot_i) {
-                incmatrix::matrixRotateLeft(m_matrix_cpy);
-                hlprMP.insert(m_matrix_cpy);
+                matriRotateLeft(m_matrix_cpy_view);
+                hlprMP.insert(shpCpy);
             }
 
-            for (size_t i = 0; i < (m_matrix_cpy.size() / 2); ++i) {
-                std::swap(m_matrix_cpy.at(i), m_matrix_cpy.at(m_matrix_cpy.size() - 1 - i));
+            for (size_t rowID = 0uz; rowID < m_matrix_cpy_view.extent(0); ++rowID) {
+                for (size_t i = 0; i < (m_matrix_cpy_view.extent(1) / 2); ++i) {
+                    std::swap(m_matrix_cpy_view[rowID, i],
+                              m_matrix_cpy_view[rowID, m_matrix_cpy_view.extent(1) - 1 - i]);
+                }
             }
 
-            hlprMP.insert(m_matrix_cpy);
+            hlprMP.insert(shpCpy);
             for (int rot_i = 0; rot_i < 3; ++rot_i) {
-                incmatrix::matrixRotateLeft(m_matrix_cpy);
-                hlprMP.insert(m_matrix_cpy);
+                matriRotateLeft(m_matrix_cpy_view);
+                hlprMP.insert(shpCpy);
             }
-
-            std::vector<Shape> out;
-            out.reserve(hlprMP.size());
-            for (auto const &item : hlprMP) {
-                Shape shp(m_sqsz);
-                shp.m_matrix = item;
-                out.push_back(std::move(shp));
-            }
-            return out;
+            return std::vector<Shape>(hlprMP.begin(), hlprMP.end());
         }
 
         friend constexpr void XXH3Hash(Shape const &input, XXH3_state_t *state) {
-            XXH3_64bits_update(state, &input.m_sqsz, sizeof(input.m_sqsz));
-            for (auto const &line : input.m_matrix) {
-                XXH3_64bits_update(state, line.data(),
-                                   sizeof(typename std::remove_cvref_t<decltype(line)>::value_type) * line.size());
-            }
+            XXH3_64bits_update(state, input.m_matrix.data(),
+                               sizeof(typename std::remove_cvref_t<decltype(input.m_matrix)>::value_type) *
+                                   input.m_matrix.size());
         }
     };
 
+    struct OverlayRes {
+        Shape  ol_shp;
+        size_t sqsz = 0;
+
+        // std::vector<std::vector<unsigned char>> res_matrix;
+
+        size_t pointsAdded        = 0;
+        size_t pointsOverlaid     = 0;
+        size_t bordersTouching    = 0;
+        size_t bordersNotTouching = 0;
+
+        size_t pointsTouching    = 0;
+        size_t pointsNotTouching = 0;
+
+        size_t gapsCount   = 0;
+        size_t shapesCount = 0;
+
+        double surfacePointsCovered_relative = 0.0;
+        double surfacePointsOpened_relative  = std::numeric_limits<double>::max();
+
+        double surfaceCovered_relative = 0.0;
+        double surfaceOpened_relative  = std::numeric_limits<double>::max();
+    };
+
     struct PastRes {
-        struct AlternID {
-            size_t shpID    = 0;
-            size_t alternID = 0;
-        };
-        size_t            uncoveredBySurr = 0;
-        AlternID          ol_shpID{};
-        Shape::OverlayRes ol_res{};
+        size_t     uncoveredBySurr = 0;
+        AlternID   ol_shpID{};
+        OverlayRes ol_res{};
     };
 
     struct ConsideredShapeOption {
@@ -538,7 +430,7 @@ public:
         constexpr std::array<char, 3> map{46, 35, 118};
 
         for (size_t lineID = 0uz; lineID < m_areaView.extent(0); ++lineID) {
-            for (size_t colID; colID < m_areaView.extent(1); ++colID) {
+            for (size_t colID = 0uz; colID < m_areaView.extent(1); ++colID) {
                 toPrint.push_back(map[m_areaView[lineID, colID]]);
             }
             toPrint.push_back('\n');
@@ -864,21 +756,17 @@ private:
         auto const                            perShpScoringAdj = compute_perShapeScoringAdjustments();
 
         Pos curPos{.y = -1, .x = -1};
-
-        for (auto const &frontierLine : m_frontierTiles) {
-            curPos.y++;
-            curPos.x = -1;
-            for (auto const &frontierPos : frontierLine) {
-                curPos.x++;
+        for (curPos.y = 0uz; curPos.y < m_frontierTiles_view.extent(0); ++curPos.y) {
+            for (curPos.x = 0uz; curPos.x < m_frontierTiles_view.extent(1); ++curPos.x) {
+                auto const &frontierPos = m_frontierTiles_view[curPos.y, curPos.x];
                 if (frontierPos != std::nullopt) {
                     collect_consideredOptionsAt(toConsider, anyFilled, selectionState, curPos,
                                                 frontierPos.value().get(), perShpScoringAdj,
                                                 ConsideredShapeOption::Type::Dividing,
-                                                [](auto const &item) { return item.ol_res.gapsCount > 1; });
+                                                [](auto const &item) { return item.ol_res.gapsCount < 2; });
                 }
             }
         }
-
         if (! anyFilled) { return std::nullopt; }
         return toConsider;
     }
@@ -903,10 +791,11 @@ private:
         std::vector<Pos> res{};
         long long const  halfCount = static_cast<long long>(m_shapeOLCount_border / 2);
 
+        auto olResMat_view = cso.pr_option.ol_res.ol_shp.get_mdspanOfSelf();
         for (long long thisShpRow = cso.p.y; thisShpRow < (cso.p.y + static_cast<long long>(m_sqsz)); ++thisShpRow) {
             for (long long thisShpCol = cso.p.x; thisShpCol < (cso.p.x + static_cast<long long>(m_sqsz));
                  ++thisShpCol) {
-                if (cso.pr_option.ol_res.res_matrix[thisShpRow - cso.p.y][thisShpCol - cso.p.x] != 0) { continue; }
+                if (olResMat_view[thisShpRow - cso.p.y, thisShpCol - cso.p.x] != 0) { continue; }
 
                 bool onePointCovered      = false;
                 bool atLeastOneWithoutGap = false;
@@ -917,15 +806,23 @@ private:
                          ++influCol) {
                         if (! is_posValid(Pos{.y = influRow, .x = influCol})) { continue; }
 
-                        if (! m_frontierTiles.at(influRow).at(influCol).has_value()) { continue; }
-                        for (auto const &prLine : m_frontierTiles.at(influRow).at(influCol).value().get()) {
+
+                        if (! m_frontierTiles_view[influRow, influCol].has_value()) { continue; }
+                        for (auto const &prLine : m_frontierTiles_view[influRow, influCol].value().get()) {
+                            size_t const computedID =
+                                ((m_sqsz *
+                                  (((m_sqsz - 2) - (influRow - (thisShpRow - (static_cast<long long>(m_sqsz) - 2)))))) +
+                                 ((m_sqsz - 2) - (influCol - (thisShpCol - (static_cast<long long>(m_sqsz) - 2)))));
+
                             for (PastRes const &onePR : prLine) {
-                                onePointCovered |=
-                                    onePR.ol_res.res_matrix
-                                        .at((m_sqsz - 2) -
-                                            (influRow - (thisShpRow - (static_cast<long long>(m_sqsz) - 2))))
-                                        .at((m_sqsz - 2) -
-                                            (influCol - (thisShpCol - (static_cast<long long>(m_sqsz) - 2))));
+                                onePointCovered |= onePR.ol_res.ol_shp.m_matrix.at(computedID);
+
+                                // onePointCovered |=
+                                //     onePR.ol_res.res_matrix
+                                //         .at((m_sqsz - 2) -
+                                //             (influRow - (thisShpRow - (static_cast<long long>(m_sqsz) - 2))))
+                                //         .at((m_sqsz - 2) -
+                                //             (influCol - (thisShpCol - (static_cast<long long>(m_sqsz) - 2))));
                                 atLeastOneWithoutGap |= (onePR.ol_res.gapsCount < 2);
                             }
                         }
@@ -944,8 +841,8 @@ private:
 private:
     template <bool INCLBorder = true>
     std::vector<Pos> get_surrOverlappingPoss(Pos const &shp_pos) const {
-        size_t const rows = m_area.size();
-        size_t const cols = m_area.size() > 0 ? m_area.front().size() : 0;
+        size_t const rows = m_areaView.extent(0);
+        size_t const cols = m_areaView.extent(1);
 
         size_t const adj = (m_sqsz - 2 + static_cast<size_t>(INCLBorder));
 
@@ -967,8 +864,8 @@ private:
     std::vector<Pos> get_surrOverlappingPoss_forWindowsAt(Pos const &shp_pos, size_t olCount) const {
         assert(olCount % 2 == 1);
 
-        size_t const rows = m_area.size();
-        size_t const cols = m_area.size() > 0 ? m_area.front().size() : 0;
+        size_t const rows = m_areaView.extent(0);
+        size_t const cols = m_areaView.extent(1);
 
         long long const halfCount = static_cast<long long>(olCount / 2);
 
@@ -986,15 +883,16 @@ private:
     }
 
     std::optional<Shape> get_windowAtPos(Pos const &shapePos) const {
-        size_t const rows = m_area.size();
-        size_t const cols = m_area.size() > 0 ? m_area.front().size() : 0;
+        size_t const rows = m_areaView.extent(0);
+        size_t const cols = m_areaView.extent(1);
 
         if (shapePos.y >= 0 && shapePos.y <= static_cast<long long>(rows - m_sqsz) && shapePos.x >= 0 &&
             shapePos.x <= static_cast<long long>(cols - m_sqsz)) {
-            Shape res(m_sqsz);
+            auto res      = Shape::make(m_sqsz);
+            auto res_view = res.get_mdspanOfSelf();
             for (long long row = shapePos.y; row < shapePos.y + static_cast<long long>(m_sqsz); ++row) {
                 for (long long col = shapePos.x; col < (shapePos.x + static_cast<long long>(m_sqsz)); ++col) {
-                    res.m_matrix[row - shapePos.y][col - shapePos.x] = m_area[row][col];
+                    res_view[row - shapePos.y, col - shapePos.x] = m_areaView[row, col];
                 }
             }
             return res;
@@ -1003,10 +901,9 @@ private:
     }
 
     bool is_posValid(Pos const &p) const noexcept {
-        long long const py = p.y;
-        long long const px = p.x;
-        if (py < 0 || py > (static_cast<long long>(m_area.size()) - static_cast<long long>(m_sqsz)) || px < 0 ||
-            px > (m_area.size() == 0 ? 0 : static_cast<long long>(m_area.front().size() - m_sqsz))) {
+
+        if (p.y < 0 || p.y > (static_cast<long long>(m_areaView.extent(0)) - static_cast<long long>(m_sqsz)) ||
+            p.x < 0 || p.x > (static_cast<long long>(m_areaView.extent(1) - static_cast<long long>(m_sqsz)))) {
             return false;
         }
         return true;
@@ -1014,9 +911,10 @@ private:
 
     bool set_windowAtPos(Pos const &shapePos, PastRes const &pr) {
         if (! is_posValid(shapePos)) { return false; }
+        auto rm_view = pr.ol_res.ol_shp.get_mdspanOfSelf();
         for (long long r = shapePos.y; r < (shapePos.y + static_cast<long long>(m_sqsz)); ++r) {
             for (long long c = shapePos.x; c < (shapePos.x + static_cast<long long>(m_sqsz)); ++c) {
-                m_area[r][c] = pr.ol_res.res_matrix[r - shapePos.y][c - shapePos.x];
+                m_areaView[r, c] = rm_view[r - shapePos.y, c - shapePos.x];
             }
         }
         return true;
@@ -1024,9 +922,10 @@ private:
 
     bool set_windowAtPos(Pos const &shapePos, Shape const &newWindow) {
         if (! is_posValid(shapePos)) { return false; }
+        auto nw_view = newWindow.get_mdspanOfSelf();
         for (long long r = shapePos.y; r < (shapePos.y + static_cast<long long>(m_sqsz)); ++r) {
             for (long long c = shapePos.x; c < (shapePos.x + static_cast<long long>(m_sqsz)); ++c) {
-                m_area[r][c] = newWindow.m_matrix[r - shapePos.y][c - shapePos.x];
+                m_areaView[r, c] = nw_view[r - shapePos.y, c - shapePos.x];
             }
         }
         return true;
@@ -1045,8 +944,8 @@ private:
         XXH3_state_t *state = XXH3_createState();
         XXH3_64bits_reset_withSeed(state, 0);
 
-        size_t const m_area_ySz = m_area.size();
-        size_t const m_area_xSz = m_area.empty() ? 0 : m_area.front().size();
+        size_t const m_area_ySz = m_areaView.extent(0);
+        size_t const m_area_xSz = m_areaView.extent(1);
         XXH3_64bits_update(state, &m_sqsz, sizeof(size_t));
         XXH3_64bits_update(state, &m_area_ySz, sizeof(size_t));
         XXH3_64bits_update(state, &m_area_xSz, sizeof(size_t));
@@ -1088,6 +987,141 @@ public:
         return std::vector<decltype(input)>(hlprMP.begin(), hlprMP.end());
     }
 };
+
+inline BoxPacker_2D::OverlayRes BoxPacker_2D::Shape::compute_overlayWith(Shape const &other) const {
+    assert(m_sqsz == other.m_sqsz);
+    BoxPacker_2D::OverlayRes res{.ol_shp{.m_sqsz = m_sqsz, .m_matrix = std::vector<unsigned char>(m_sqsz * m_sqsz, 0)}};
+
+    auto const mv       = get_mdspanOfSelf();
+    auto const mv_other = other.get_mdspanOfSelf();
+    auto const mv_res   = res.ol_shp.get_mdspanOfSelf();
+
+    for (size_t r = 0; r < m_sqsz; ++r) {
+        for (size_t c = 0; c < m_sqsz; ++c) {
+            res.pointsOverlaid += (mv[r, c] != 0) && (mv_other[r, c] != 0);
+            res.pointsAdded    += (mv[r, c] == 0) && (mv_other[r, c] != 0);
+            mv_res[r, c]        = (mv[r, c] != 0 || mv_other[r, c] != 0) ? 1 : 0;
+        }
+    }
+
+    Shape touch    = Shape::make(m_sqsz);
+    Shape notTouch = Shape::make(m_sqsz);
+
+    auto mv_touch    = touch.get_mdspanOfSelf();
+    auto mv_notTouch = notTouch.get_mdspanOfSelf();
+
+    for (size_t r = 1; r < m_sqsz - 1; ++r) {
+        for (size_t c = 1; c < m_sqsz - 1; ++c) {
+            if (mv_other[r, c] == 0) { continue; }
+
+            res.bordersTouching += (mv[r - 1, c] != 0) && (mv_other[r - 1, c] == 0);
+            res.bordersTouching += (mv[r, c - 1] != 0) && (mv_other[r, c - 1] == 0);
+            res.bordersTouching += (mv[r, c + 1] != 0) && (mv_other[r, c + 1] == 0);
+            res.bordersTouching += (mv[r + 1, c] != 0) && (mv_other[r + 1, c] == 0);
+
+            mv_touch[r - 1, c] |= (mv[r - 1, c] != 0) && (mv_other[r - 1, c] == 0);
+            mv_touch[r, c - 1] |= (mv[r, c - 1] != 0) && (mv_other[r, c - 1] == 0);
+            mv_touch[r, c + 1] |= (mv[r, c + 1] != 0) && (mv_other[r, c + 1] == 0);
+            mv_touch[r + 1, c] |= (mv[r + 1, c] != 0) && (mv_other[r + 1, c] == 0);
+
+            res.bordersNotTouching += (mv[r - 1, c] == 0) && (mv_other[r - 1, c] == 0);
+            res.bordersNotTouching += (mv[r, c - 1] == 0) && (mv_other[r, c - 1] == 0);
+            res.bordersNotTouching += (mv[r, c + 1] == 0) && (mv_other[r, c + 1] == 0);
+            res.bordersNotTouching += (mv[r + 1, c] == 0) && (mv_other[r + 1, c] == 0);
+
+            mv_notTouch[r - 1, c] |= (mv[r - 1, c] == 0) && (mv_other[r - 1, c] == 0);
+            mv_notTouch[r, c - 1] |= (mv[r, c - 1] == 0) && (mv_other[r, c - 1] == 0);
+            mv_notTouch[r, c + 1] |= (mv[r, c + 1] == 0) && (mv_other[r, c + 1] == 0);
+            mv_notTouch[r + 1, c] |= (mv[r + 1, c] == 0) && (mv_other[r + 1, c] == 0);
+        }
+    }
+
+    Shape gapPastMemo    = Shape::make(m_sqsz);
+    Shape filledPastMemo = Shape::make(m_sqsz);
+    Shape curMemo        = Shape::make(m_sqsz);
+
+    auto mv_gasPastMemo    = gapPastMemo.get_mdspanOfSelf();
+    auto mv_filledPastMemo = filledPastMemo.get_mdspanOfSelf();
+    auto mv_curMemo        = curMemo.get_mdspanOfSelf();
+
+    Pos curPos{.y = 0, .x = 0};
+
+    auto gapsRecLambda = [&](this auto const &self) -> bool {
+        if (mv_res[curPos.y, curPos.x] != 0) { return true; }
+        if (mv_curMemo[curPos.y, curPos.x] != 0) { return true; }
+        mv_curMemo[curPos.y, curPos.x] = 1;
+
+        if (mv_gasPastMemo[curPos.y, curPos.x] != 0) { return false; }
+        mv_gasPastMemo[curPos.y, curPos.x] = 1;
+
+        for (long long row : {-1LL, 1LL}) {
+            if (curPos.y + row < 0 || curPos.y + row >= static_cast<long long>(m_sqsz)) { continue; }
+            curPos.y += row;
+            if (! self()) { return false; }
+            curPos.y -= row;
+        }
+        for (long long col : {-1LL, 1LL}) {
+            if (curPos.x + col < 0 || curPos.x + col >= static_cast<long long>(m_sqsz)) { continue; }
+            curPos.x += col;
+            if (! self()) { return false; }
+            curPos.x -= col;
+        }
+        return true;
+    };
+
+    auto filledRecLambda = [&](this auto const &self) -> bool {
+        if (mv_res[curPos.y, curPos.x] == 0) { return true; }
+        if (mv_curMemo[curPos.y, curPos.x] != 0) { return true; }
+        mv_curMemo[curPos.y, curPos.x] = 1;
+
+        if (mv_filledPastMemo[curPos.y, curPos.x] != 0) { return false; }
+        mv_filledPastMemo[curPos.y, curPos.x] = 1;
+
+        for (long long row : {-1LL, 1LL}) {
+            if (curPos.y + row < 0 || curPos.y + row >= static_cast<long long>(m_sqsz)) { continue; }
+            curPos.y += row;
+            if (! self()) { return false; }
+            curPos.y -= row;
+        }
+        for (long long col : {-1LL, 1LL}) {
+            if (curPos.x + col < 0 || curPos.x + col >= static_cast<long long>(m_sqsz)) { continue; }
+            curPos.x += col;
+            if (! self()) { return false; }
+            curPos.x -= col;
+        }
+        return true;
+    };
+
+    for (size_t r = 0; r < m_sqsz; ++r) {
+        for (size_t c = 0; c < m_sqsz; ++c) {
+            if (mv_res[r, c] == 0 && mv_gasPastMemo[r, c] == 0) {
+                curPos.y       = static_cast<long long>(r);
+                curPos.x       = static_cast<long long>(c);
+                curMemo        = Shape::make(m_sqsz);
+                res.gapsCount += gapsRecLambda();
+            }
+            if (mv_res[r, c] != 0 && mv_filledPastMemo[r, c] == 0) {
+                curPos.y         = static_cast<long long>(r);
+                curPos.x         = static_cast<long long>(c);
+                curMemo          = Shape::make(m_sqsz);
+                res.shapesCount += filledRecLambda();
+            }
+        }
+    }
+
+    res.pointsTouching    = touch.count_filled();
+    res.pointsNotTouching = notTouch.count_filled();
+    double const denomP   = std::max(static_cast<double>(res.pointsTouching + res.pointsNotTouching), 1.0);
+    double const denomB   = std::max(static_cast<double>(res.bordersTouching + res.bordersNotTouching), 1.0);
+
+    res.surfacePointsCovered_relative = res.pointsTouching / denomP;
+    res.surfacePointsOpened_relative  = res.pointsNotTouching / denomP;
+
+    res.surfaceCovered_relative = res.bordersTouching / denomB;
+    res.surfaceOpened_relative  = res.bordersNotTouching / denomB;
+
+    return res;
+}
 
 } // namespace packing
 
