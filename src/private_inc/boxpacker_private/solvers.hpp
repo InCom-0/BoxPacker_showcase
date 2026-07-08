@@ -451,6 +451,7 @@ public:
     BoxPacker_2D &operator=(BoxPacker_2D const &) = delete;
     BoxPacker_2D &operator=(BoxPacker_2D &&)      = default;
 
+
 private:
     BoxPacker_2D(size_t const sqsz, size_t const area_ySize, size_t const area_xSize,
                  std::vector<std::vector<Shape>> const &shps_alterns, std::vector<size_t> const &shps_counts,
@@ -458,8 +459,8 @@ private:
         : m_sqsz(sqsz), m_shapeOLCount_full((2 * sqsz) - 1), m_shapeOLCount_border((2 * sqsz) - 3),
           m_shapeOLCount_inside((2 * sqsz) - 5), m_useableCount_perShape(shps_counts),
           m_area((area_ySize + 2) * (area_xSize + 2), 0), m_areaView(m_area.data(), area_ySize + 2, area_xSize + 2),
-          m_frontierTiles(
-              std::vector(area_ySize + 3 - sqsz, std::vector<frontierTilePossibs_t>(area_xSize + 3 - sqsz))),
+          m_frontierTiles((area_ySize + 3 - sqsz) * (area_xSize + 3 - sqsz), frontierTilePossibs_t{}),
+          m_frontierTiles_view(m_frontierTiles.data(), (area_ySize + 3 - sqsz), (area_xSize + 3 - sqsz)),
           m_firstTilePos(Pos{.y = static_cast<long long>(firstTile_yPos), .x = static_cast<long long>(firstTile_xPos)}),
           m_shapes_alterns(shps_alterns),
           m_shapesMaxEmpty(((sqsz - 2) * (sqsz - 2)) -
@@ -505,8 +506,8 @@ private:
         auto const ftPos = Pos{.y = static_cast<long long>(std::min(firstTile_yPos, area_ySize - m_sqsz)),
                                .x = static_cast<long long>(std::min(firstTile_xPos, area_xSize - m_sqsz))};
 
-        auto &ft_possibs                        = getOrCompute_possibsFor(get_windowAtPos(ftPos).value());
-        m_frontierTiles.at(ftPos.y).at(ftPos.x) = std::ref(ft_possibs);
+        auto &ft_possibs                       = getOrCompute_possibsFor(get_windowAtPos(ftPos).value());
+        m_frontierTiles_view[ftPos.y, ftPos.x] = std::ref(ft_possibs);
         prime_fprng();
     }
 
@@ -643,11 +644,11 @@ public:
     }
 
     void reset_frontier(Pos const &firstTilePos) {
-        auto const ftPos =
-            Pos{.y = static_cast<long long>(std::min(firstTilePos.y, static_cast<long long>(m_area.size() - m_sqsz))),
-                .x = static_cast<long long>(std::min(
-                    firstTilePos.x, static_cast<long long>((m_area.size() > 0 ? m_area.front().size() : 0) - m_sqsz)))};
-        m_firstTilePos = ftPos;
+        auto const ftPos = Pos{.y = static_cast<long long>(
+                                   std::min(firstTilePos.y, static_cast<long long>(m_areaView.extent(0) - m_sqsz))),
+                               .x = static_cast<long long>(
+                                   std::min(firstTilePos.x, static_cast<long long>(m_areaView.extent(1) - m_sqsz)))};
+        m_firstTilePos   = ftPos;
         reset_frontier();
     }
 
@@ -664,40 +665,41 @@ public:
     size_t erase_fromFrontier(std::vector<Pos> const &shapePoss) {
         size_t res_removed = 0;
         for (Pos const &onePos : shapePoss) {
-            if (m_frontierTiles.at(onePos.y).at(onePos.x) != std::nullopt) { res_removed++; }
-            m_frontierTiles.at(onePos.y).at(onePos.x) = std::nullopt;
+            if (m_frontierTiles_view[onePos.y, onePos.x] != std::nullopt) { res_removed++; }
+            m_frontierTiles_view[onePos.y, onePos.x] = std::nullopt;
         }
         return res_removed;
     }
 
+
+    bool add_toFrontier(Pos const &onePos) {
+        bool res    = true;
+        auto window = get_windowAtPos(onePos);
+        if (! window.has_value() || window.value().count_filledBorderLess() > m_shapesMaxEmpty) { res = false; }
+        else {
+            auto &possibsForWindow = getOrCompute_possibsFor(window.value());
+            if (possibsForWindow.size() > 0) { m_frontierTiles_view[onePos.y, onePos.x] = std::ref(possibsForWindow); }
+        }
+        return res;
+    }
+
+
     size_t add_toFrontier(std::vector<Pos> const &shapePoss) {
         size_t resCount = 0;
-        for (auto const &onePos : shapePoss) {
-            auto window = get_windowAtPos(onePos);
-            if (! window.has_value() || window.value().count_filledBorderLess() > m_shapesMaxEmpty) { continue; }
-
-            auto &possibsForWindow = getOrCompute_possibsFor(window.value());
-            if (possibsForWindow.size() > 0) { m_frontierTiles.at(onePos.y).at(onePos.x) = std::ref(possibsForWindow); }
-            resCount++;
-        }
+        for (auto const &onePos : shapePoss) { resCount += add_toFrontier(onePos); }
         return resCount;
     }
 
     size_t add_toFrontier_allCorners() {
         size_t resCount = 0;
-        if (m_area.size() < m_sqsz || m_area.front().size() < m_sqsz) { return 0; }
-
-        for (auto const [r, c] :
-             std::array<std::array<size_t, 2>, 4>{{{0, 0},
-                                                   {0, m_area.front().size() - m_sqsz},
-                                                   {m_area.size() - m_sqsz, 0},
-                                                   {m_area.size() - m_sqsz, m_area.front().size() - m_sqsz}}}) {
-            auto window = get_windowAtPos(Pos{static_cast<long long>(r), static_cast<long long>(c)});
-            if (! window.has_value() || window.value().count_filledBorderLess() > m_shapesMaxEmpty) { continue; }
-
-            auto &possibsForWindow = getOrCompute_possibsFor(window.value());
-            if (possibsForWindow.size() > 0) { m_frontierTiles.at(r).at(c) = std::ref(possibsForWindow); }
-            resCount++;
+        if (m_areaView.extent(0) >= m_sqsz && m_areaView.extent(1) >= m_sqsz) {
+            for (auto const [r, c] : std::array<std::array<size_t, 2>, 4>{
+                     {{0, 0},
+                      {0, m_areaView.extent(1) - m_sqsz},
+                      {m_areaView.extent(0) - m_sqsz, 0},
+                      {m_areaView.extent(0) - m_sqsz, m_areaView.extent(1) - m_sqsz}}}) {
+                resCount += add_toFrontier(Pos{static_cast<long long>(r), static_cast<long long>(c)});
+            }
         }
 
         return resCount;
@@ -737,7 +739,7 @@ private:
     }
 
     std::vector<double> compute_perShapeScoringAdjustments() const {
-        double const sum = static_cast<double>(std::ranges::fold_left(m_useableCount_perShape, size_t{0}, std::plus{}));
+        double const sum = static_cast<double>(std::ranges::fold_left(m_useableCount_perShape, 0uz, std::plus{}));
 
         auto ratiosHlprView = std::views::zip(m_useableCount_perShape, m_shapesRatios_orig) |
                               std::views::transform([&](auto const &oneCount) {
@@ -770,23 +772,23 @@ private:
     std::optional<std::vector<std::vector<ConsideredShapeOption>>> findNextStep_covering() {
         if (m_uncoverableFrontierPoss.empty()) { return std::nullopt; }
 
-        std::vector<char> tracker(m_frontierTiles.size() * m_frontierTiles.front().size(), 0);
-        std::mdspan       mdsp(tracker.data(),
-                               std::dextents<size_t, 2>{m_frontierTiles.size(), m_frontierTiles.front().size()});
+        std::vector<unsigned char> tracker(m_frontierTiles_view.extent(0) * m_frontierTiles_view.extent(1), 0);
+        pf_mdspan mdsp(tracker.data(),
+                       std::dextents<size_t, 2>{m_frontierTiles_view.extent(0), m_frontierTiles_view.extent(1)});
 
         auto const perShpScoringAdj = compute_perShapeScoringAdjustments();
 
         while (! m_uncoverableFrontierPoss.empty()) {
-            if (m_area.at(m_uncoverableFrontierPoss.front().y).at(m_uncoverableFrontierPoss.front().x) != 0) {
+            if (m_areaView[m_uncoverableFrontierPoss.front().y, m_uncoverableFrontierPoss.front().x] != 0) {
                 m_uncoverableFrontierPoss.pop_front();
                 continue;
             }
 
             auto explr = explorers::Chebyshev(
-                [&](std::array<size_t, 2> const &item) { return m_area.at(item[0]).at(item[1]) == 0; },
+                [&](std::array<size_t, 2> const &item) { return m_areaView[item[0], item[1]] == 0; },
                 std::array{static_cast<size_t>(m_uncoverableFrontierPoss.front().y),
                            static_cast<size_t>(m_uncoverableFrontierPoss.front().x)},
-                std::array{m_area.size(), m_area.empty() ? 0U : m_area.front().size()});
+                std::array{m_frontierTiles_view.extent(0), m_frontierTiles_view.extent(1)});
 
             auto eva = [&](std::vector<Pos> const &poss) -> std::optional<consideredOptionsByShape_t> {
                 consideredOptionsByShape_t            toConsider(m_shapes_alterns.size());
@@ -797,10 +799,11 @@ private:
                     for (auto const &prPos : get_surrOverlappingPoss<false>(onePos)) {
                         if (mdsp[prPos.y, prPos.x] != 0) { continue; }
                         mdsp[prPos.y, prPos.x] = 1;
-                        if (! m_frontierTiles.at(prPos.y).at(prPos.x).has_value()) { continue; }
+
+                        if (! m_frontierTiles_view[prPos.y, prPos.x].has_value()) { continue; }
 
                         collect_consideredOptionsAt(toConsider, anyFilled, selectionState, prPos,
-                                                    m_frontierTiles.at(prPos.y).at(prPos.x).value().get(),
+                                                    m_frontierTiles_view[prPos.y, prPos.x].value().get(),
                                                     perShpScoringAdj, ConsideredShapeOption::Type::Gapcreating,
                                                     [](auto const &item) { return item.ol_res.gapsCount > 1; });
                     }
@@ -839,12 +842,9 @@ private:
         auto const                            perShpScoringAdj = compute_perShapeScoringAdjustments();
 
         Pos curPos{.y = -1, .x = -1};
-
-        for (auto const &frontierLine : m_frontierTiles) {
-            curPos.y++;
-            curPos.x = -1;
-            for (auto const &frontierPos : frontierLine) {
-                curPos.x++;
+        for (curPos.y = 0uz; curPos.y < m_frontierTiles_view.extent(0); ++curPos.y) {
+            for (curPos.x = 0uz; curPos.x < m_frontierTiles_view.extent(1); ++curPos.x) {
+                auto const &frontierPos = m_frontierTiles_view[curPos.y, curPos.x];
                 if (frontierPos != std::nullopt) {
                     collect_consideredOptionsAt(toConsider, anyFilled, selectionState, curPos,
                                                 frontierPos.value().get(), perShpScoringAdj,
@@ -853,7 +853,6 @@ private:
                 }
             }
         }
-
         if (! anyFilled) { return std::nullopt; }
         return toConsider;
     }
