@@ -13,7 +13,7 @@ option(BUILD_SHARED_LIBS "Build shared libraries" OFF)
 option(CPM_USE_LOCAL_PACKAGES "Use local (usually system installed) packages for dependencies." ON)
 option(CPM_LOCAL_PACKAGES_ONLY "Forbid the build system from downloading missing dependencies." OFF)
 
-option(boxpacker_showcase_ENABLE_LTO "Request LTO pending support" OFF)
+option(boxpacker_showcase_ENABLE_LTO "Request LTO pending support" ON)
 
 option(boxpacker_showcase_STAGE_OUTPUTS "Stage build output artifacts into proper directory structure" ON)
 option(boxpacker_showcase_PORTABLE_LAYOUT "Use flat (Windows-like / portable) install layout" OFF)

@@ -30,6 +30,7 @@ using namespace incom::standard;
 namespace packing {
 
 class BoxPacker_2D {
+public:
 #if defined(INCSTD_MDSPAN_UNDER_KOKKOS)
     template <class IndexType, size_t Rank>
     using pf_dextents = Kokkos::dextents<IndexType, Rank>;
@@ -55,7 +56,6 @@ class BoxPacker_2D {
 #endif
 
 
-public:
     // Forward declarations
     struct Pos;
     struct AlternID;
@@ -691,7 +691,7 @@ private:
         if (m_uncoverableFrontierPoss.empty()) { return std::nullopt; }
 
         std::vector<unsigned char> tracker(m_frontier_ySz * m_frontier_xSz, 0);
-        pf_mdspan                  mdsp(tracker.data(), std::dextents<size_t, 2>{m_area_ySize, m_frontier_xSz});
+        pf_mdspan                  mdsp(tracker.data(), pf_dextents<size_t, 2>{m_area_ySize, m_frontier_xSz});
 
         auto const perShpScoringAdj = compute_perShapeScoringAdjustments();
 

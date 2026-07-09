@@ -25,8 +25,8 @@
 
 
 #include <ankerl/unordered_dense.h>
-#include <incstd/console/colorschemes.hpp>
 #include <boxpacker_private/solvers.hpp>
+#include <incstd/console/colorschemes.hpp>
 #include <readerwriterqueue.h>
 
 
@@ -797,8 +797,8 @@ int main(int, char **) {
                         // Rewind slider
                         static float cellSize = 16.0f;
                         ImGui::PushItemWidth(
-                            std::get<1>(jobs.at(sel_jobID.value())).m_trees.at(sel_resID.value()).xDim * (cellSize +
-                            1.0));
+                            std::get<1>(jobs.at(sel_jobID.value())).m_trees.at(sel_resID.value()).xDim *
+                            (cellSize + 1.0));
                         if (ImGui::SliderInt("##int", &rewindSlider, 0,
                                              jobs.at(sel_jobID.value()).second.vecOfRes.at(sel_resID.value()).size())) {
                             rewindSlider = std::clamp(
@@ -837,6 +837,7 @@ int main(int, char **) {
                             };
 
                             // Draw each square (ie. set the right background color)
+                            auto const areaView = selJobSolvRes.get_mdspan_areaTree(sel_resID.value());
                             for (int tRow = 1; tRow < selJobSolvRes.m_trees.at(sel_resID.value()).yDim + 1; tRow++) {
                                 ImGui::TableNextRow(ImGuiTableRowFlags_None, cellSize);
                                 for (int tCol = 1; tCol < selJobSolvRes.m_trees.at(sel_resID.value()).xDim + 1;
@@ -845,8 +846,7 @@ int main(int, char **) {
                                     ImGui::TableSetColumnIndex(tCol - 1);
 
                                     ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg,
-                                                           selJobSolvRes.colorsToUse.at(
-                                                               selJobSolvRes.accs.at(sel_resID.value())[tRow, tCol]));
+                                                           selJobSolvRes.colorsToUse.at(areaView[tRow, tCol]));
                                 }
                             }
                             ImGui::EndTable();

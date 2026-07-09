@@ -5,14 +5,14 @@
 #include <concepts>
 #include <cstdint>
 #include <format>
-#include <mdspan>
 #include <stdexec/__detail/__execution_fwd.hpp>
 #include <utility>
 
 #include <boxpacker_private/incom_commons.hpp>
-#include <incstd/incstd_all.hpp>
 #include <boxpacker_private/solvers.hpp>
+#include <incstd/incstd_all.hpp>
 #include <readerwriterqueue.h>
+
 
 #include <exec/async_scope.hpp>
 #include <exec/execute.hpp>
@@ -36,20 +36,27 @@ struct Shape {
 
     template <std::size_t... Extents>
     auto get_viewInto() {
-        return std::mdspan(m_data.data(), std::extents<uint32_t, Extents...>{});
+        return incpack::BoxPacker_2D::pf_mdspan<uint32_t, incpack::BoxPacker_2D::pf_dextents<size_t, 2>>(m_data.data(),
+                                                                                                         Extents...);
     };
 
     template <std::size_t... Extents>
     auto get_viewInto() const {
-        return std::mdspan(m_data.data(), std::extents<uint32_t, Extents...>{});
+        return incpack::BoxPacker_2D::pf_mdspan<const uint32_t, incpack::BoxPacker_2D::pf_dextents<size_t, 2>>(
+            m_data.data(), Extents...);
     };
 
     auto get_viewInto(std::convertible_to<size_t> auto const... ids) {
-        return std::mdspan(m_data.data(), std::dextents<uint32_t, sizeof...(ids)>{});
+        return incpack::BoxPacker_2D::pf_mdspan<uint32_t, incpack::BoxPacker_2D::pf_dextents<size_t, 2>>(m_data.data(),
+                                                                                                         ids...);
+        // return std::mdspan(m_data.data(), std::dextents<uint32_t, sizeof...(ids)>{});
     };
 
     auto get_viewInto(std::convertible_to<size_t> auto const... ids) const {
-        return std::mdspan(m_data.data(), std::dextents<uint32_t, sizeof...(ids)>{});
+        return incpack::BoxPacker_2D::pf_mdspan<const uint32_t, incpack::BoxPacker_2D::pf_dextents<size_t, 2>>(
+            m_data.data(), ids...);
+
+        // return std::mdspan(m_data.data(), std::dextents<uint32_t, sizeof...(ids)>{});
     };
 
 
@@ -148,8 +155,7 @@ struct SolveResStore {
 
     std::vector<std::vector<size_t>> m_curPlacedCount;
 
-    std::vector<std::vector<std::uint8_t>>               m_reaAreaMaps;
-    std::vector<std::mdspan<std::uint8_t, std::dims<2>>> accs;
+    std::vector<std::vector<std::uint8_t>> m_reaAreaMaps;
 
     std::vector<ImU32> colorsToUse;
 
@@ -164,27 +170,49 @@ struct SolveResStore {
                                                                    return std::vector<std::uint8_t>(
                                                                        (item.yDim + 2) * (item.xDim + 2), 0);
                                                                })),
-          accs(std::from_range,
-               std::views::transform(std::views::zip(m_reaAreaMaps, m_trees),
-                                     [](auto const &onePair) {
-                                         return std::mdspan(std::get<0>(onePair).data(),
-                                                            std::dims<2>{std::get<1>(onePair).yDim + 2,
-                                                                         std::get<1>(onePair).xDim + 2});
-                                     })),
           colorsToUse(std::from_range, std::views::transform(palette, [](auto const &oneCol) {
                           return ImU32(ImColor(oneCol.r, oneCol.g, oneCol.b));
                       })) {}
 
 
+    auto get_mdspan_areaTree(size_t const id) {
+        return incpack::BoxPacker_2D::pf_mdspan<std::uint8_t, incpack::BoxPacker_2D::pf_dextents<size_t, 2>>(
+            m_reaAreaMaps.at(id).data(), m_trees.at(id).yDim + 2, m_trees.at(id).xDim + 2);
+    }
+    auto get_mdspan_areaTree(size_t const id) const {
+        return incpack::BoxPacker_2D::pf_mdspan<const std::uint8_t, incpack::BoxPacker_2D::pf_dextents<size_t, 2>>(
+            m_reaAreaMaps.at(id).data(), m_trees.at(id).yDim + 2, m_trees.at(id).xDim + 2);
+    }
+
+    auto get_mdspans_areasTrees() {
+        return std::vector(
+            std::from_range, std::views::transform(std::views::zip(m_reaAreaMaps, m_trees), [](auto const &onePair) {
+                return incpack::BoxPacker_2D::pf_mdspan<std::uint8_t, incpack::BoxPacker_2D::pf_dextents<size_t, 2>>(
+                    std::get<0>(onePair).data(), std::get<1>(onePair).yDim + 2, std::get<1>(onePair).xDim + 2);
+            }));
+    }
+
+    auto get_mdspans_areasTrees() const {
+        return std::vector(
+            std::from_range, std::views::transform(std::views::zip(m_reaAreaMaps, m_trees), [](auto const &onePair) {
+                return incpack::BoxPacker_2D::pf_mdspan<const std::uint8_t,
+                                                        incpack::BoxPacker_2D::pf_dextents<size_t, 2>>(
+                    std::get<0>(onePair).data(), std::get<1>(onePair).yDim + 2, std::get<1>(onePair).xDim + 2);
+            }));
+    }
+
+
     void update_oneShape(size_t const resID, size_t const vecOfRes_ID) {
         auto const &[itemPos, itemPR] = vecOfRes.at(resID).at(vecOfRes_ID);
+
+        auto areaView = get_mdspan_areaTree(resID);
         for (size_t r = itemPos.y + 1; r < itemPos.y + 1 + 3; ++r) {
             for (size_t c = itemPos.x + 1; c < itemPos.x + 1 + 3; ++c) {
                 if (m_shpsAlterns.at(itemPR.ol_shpID.shpID)
                         .at(itemPR.ol_shpID.alternID)
                         .at(r - (itemPos.y + 1))
                         .at(c - (itemPos.x + 1))) {
-                    accs.at(resID)[r, c] = itemPR.ol_shpID.shpID + 1;
+                    areaView[r, c] = itemPR.ol_shpID.shpID + 1;
                 }
             }
         }
@@ -193,13 +221,14 @@ struct SolveResStore {
 
     void remove_oneShape(size_t const resID, size_t const vecOfRes_ID) {
         auto const &[itemPos, itemPR] = vecOfRes.at(resID).at(vecOfRes_ID);
+        auto areaView                 = get_mdspan_areaTree(resID);
         for (size_t r = itemPos.y + 1; r < itemPos.y + 1 + 3; ++r) {
             for (size_t c = itemPos.x + 1; c < itemPos.x + 1 + 3; ++c) {
                 if (m_shpsAlterns.at(itemPR.ol_shpID.shpID)
                         .at(itemPR.ol_shpID.alternID)
                         .at(r - (itemPos.y + 1))
                         .at(c - (itemPos.x + 1))) {
-                    accs.at(resID)[r, c] = 0;
+                    areaView[r, c] = 0;
                 }
             }
         }
@@ -345,12 +374,10 @@ inline std::tuple<std::string, ShapesStorage, std::vector<Tree>> get_externalSam
 
 inline constexpr auto bp_asyncExecute =
     [](auto &sch, std::vector<incom::box_packer::Tree> const trees, auto const shpsToUse,
-       moodycamel::ReaderWriterQueue<std::tuple<size_t, incpack::BoxPacker_2D::Pos,
-                                                incpack::BoxPacker_2D::PastRes>> &q)
+       moodycamel::ReaderWriterQueue<std::tuple<size_t, incpack::BoxPacker_2D::Pos, incpack::BoxPacker_2D::PastRes>> &q)
     -> exec::basic_task<void, experimental::execution::__task::inline_task_context<void>> {
     co_await stdexec::schedule(sch);
-    incpack::BoxPacker_2D solver(5, trees.front().yDim, trees.front().xDim, shpsToUse,
-                                 trees.front().reqdShapes);
+    incpack::BoxPacker_2D solver(5, trees.front().yDim, trees.front().xDim, shpsToUse, trees.front().reqdShapes);
 
     auto stopTokOpt = co_await stdexec::stopped_as_optional(stdexec::get_stop_token());
 
