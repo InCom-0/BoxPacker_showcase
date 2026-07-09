@@ -87,6 +87,13 @@ public:
             return Shape{.m_sqsz = sqsz, .m_matrix = std::vector<unsigned char>(sqsz * sqsz, 0)};
         }
 
+        void reset() { std::ranges::fill(m_matrix, 0); }
+        void reset(size_t const new_sqsz) {
+            m_sqsz = new_sqsz;
+            m_matrix.resize(new_sqsz * new_sqsz);
+            reset();
+        }
+
         // Shape &operator=(Shape const &) = default;
         // Shape &operator=(Shape &&)      = default;
 
@@ -399,8 +406,8 @@ private:
         auto const ftPos = Pos{.y = static_cast<long long>(std::min(firstTile_yPos, area_ySize - m_sqsz)),
                                .x = static_cast<long long>(std::min(firstTile_xPos, area_xSize - m_sqsz))};
 
-        auto &ft_possibs                       = getOrCompute_possibsFor(get_windowAtPos(ftPos).value());
-        m_frontierTiles_view[ftPos.y, ftPos.x] = std::ref(ft_possibs);
+        auto &ft_possibs = getOrCompute_possibsFor(get_windowAtPos(ftPos).value());
+        m_frontierTiles.at((ftPos.y * m_area_xSize) + ftPos.x) = std::ref(ft_possibs);
         prime_fprng();
     }
 
@@ -436,6 +443,15 @@ public:
     }
     auto get_mdspanOfArea() {
         return pf_mdspan<unsigned char, pf_dextents<size_t, 2>>(m_area.data(), m_area_ySize, m_area_xSize);
+    }
+
+    auto get_mdspanOfFrontier() const {
+        return pf_mdspan<const frontierTilePossibs_t, pf_dextents<size_t, 2>>(m_frontierTiles.data(), m_frontier_ySz,
+                                                                              m_frontier_xSz);
+    }
+    auto get_mdspanOfFrontier() {
+        return pf_mdspan<frontierTilePossibs_t, pf_dextents<size_t, 2>>(m_frontierTiles.data(), m_frontier_ySz,
+                                                                        m_frontier_xSz);
     }
 
     std::string get_areaState() const {
@@ -523,36 +539,32 @@ public:
     }
 
     void reset_area(size_t const area_ySize, size_t const area_xSize) {
-        m_area_ySize = std::move(area_ySize);
-        m_area_xSize = std::move(area_xSize);
+        m_area_ySize = area_ySize + 2;
+        m_area_xSize = area_xSize + 2;
 
-        m_area.resize((m_area_ySize + 2uz) * (m_area_xSize + 2uz));
+        m_area.resize((m_area_ySize) * (m_area_xSize));
         reset_area();
     }
 
     void reset_frontier() {
-        auto         firstTile = get_windowAtPos(m_firstTilePos).value();
-        size_t const ftRows    = (m_areaView.extent(0) + 1 - m_sqsz);
-        size_t const ftCols    = (m_areaView.extent(1) + 1 - m_sqsz);
+        auto firstTile = get_windowAtPos(m_firstTilePos).value();
+        m_frontier_ySz = (m_area_ySize + 1 - m_sqsz);
+        m_frontier_xSz = (m_area_xSize + 1 - m_sqsz);
 
-        m_frontierTiles.resize(ftRows * ftCols);
-        m_frontierTiles_view = decltype(m_frontierTiles_view)(m_frontierTiles.data(), ftRows, ftCols);
+        m_frontierTiles.resize(m_frontier_ySz * m_frontier_xSz);
 
         std::ranges::fill(m_frontierTiles, std::nullopt);
 
         // TODO: Delete the line below once verified working
-        // auto &ft_possibs                                         = getOrCompute_possibsFor(firstTile);
-
-        m_frontierTiles.at(m_firstTilePos.y * m) m_frontierTiles_view[m_firstTilePos.y, m_firstTilePos.x] =
+        m_frontierTiles.at((m_firstTilePos.y * m_area_xSize + m_firstTilePos.x)) =
             std::ref(getOrCompute_possibsFor(firstTile));
     }
 
     void reset_frontier(Pos const &firstTilePos) {
-        auto const ftPos = Pos{.y = static_cast<long long>(
-                                   std::min(firstTilePos.y, static_cast<long long>(m_areaView.extent(0) - m_sqsz))),
-                               .x = static_cast<long long>(
-                                   std::min(firstTilePos.x, static_cast<long long>(m_areaView.extent(1) - m_sqsz)))};
-        m_firstTilePos   = ftPos;
+        auto const ftPos =
+            Pos{.y = static_cast<long long>(std::min(firstTilePos.y, static_cast<long long>(m_area_ySize - m_sqsz))),
+                .x = static_cast<long long>(std::min(firstTilePos.x, static_cast<long long>(m_area_xSize - m_sqsz)))};
+        m_firstTilePos = ftPos;
         reset_frontier();
     }
 
@@ -569,8 +581,8 @@ public:
     size_t erase_fromFrontier(std::vector<Pos> const &shapePoss) {
         size_t res_removed = 0;
         for (Pos const &onePos : shapePoss) {
-            if (m_frontierTiles_view[onePos.y, onePos.x] != std::nullopt) { res_removed++; }
-            m_frontierTiles_view[onePos.y, onePos.x] = std::nullopt;
+            if (m_frontierTiles[((onePos.y) * m_frontier_xSz) + onePos.x] != std::nullopt) { res_removed++; }
+            m_frontierTiles[((onePos.y) * m_frontier_xSz) + onePos.x] = std::nullopt;
         }
         return res_removed;
     }
@@ -582,7 +594,9 @@ public:
         if (! window.has_value() || window.value().count_filledBorderLess() > m_shapesMaxEmpty) { res = false; }
         else {
             auto &possibsForWindow = getOrCompute_possibsFor(window.value());
-            if (possibsForWindow.size() > 0) { m_frontierTiles_view[onePos.y, onePos.x] = std::ref(possibsForWindow); }
+            if (possibsForWindow.size() > 0) {
+                m_frontierTiles.at((onePos.y * m_frontier_xSz) + onePos.x) = std::ref(possibsForWindow);
+            }
         }
         return res;
     }
@@ -596,12 +610,12 @@ public:
 
     size_t add_toFrontier_allCorners() {
         size_t resCount = 0;
-        if (m_areaView.extent(0) >= m_sqsz && m_areaView.extent(1) >= m_sqsz) {
-            for (auto const [r, c] : std::array<std::array<size_t, 2>, 4>{
-                     {{0, 0},
-                      {0, m_areaView.extent(1) - m_sqsz},
-                      {m_areaView.extent(0) - m_sqsz, 0},
-                      {m_areaView.extent(0) - m_sqsz, m_areaView.extent(1) - m_sqsz}}}) {
+        if (m_area_ySize >= m_sqsz && m_area_xSize >= m_sqsz) {
+            for (auto const [r, c] :
+                 std::array<std::array<size_t, 2>, 4>{{{0, 0},
+                                                       {0, m_area_xSize - m_sqsz},
+                                                       {m_area_ySize - m_sqsz, 0},
+                                                       {m_area_ySize - m_sqsz, m_area_xSize - m_sqsz}}}) {
                 resCount += add_toFrontier(Pos{static_cast<long long>(r), static_cast<long long>(c)});
             }
         }
@@ -676,39 +690,41 @@ private:
     std::optional<std::vector<std::vector<ConsideredShapeOption>>> findNextStep_covering() {
         if (m_uncoverableFrontierPoss.empty()) { return std::nullopt; }
 
-        std::vector<unsigned char> tracker(m_frontierTiles_view.extent(0) * m_frontierTiles_view.extent(1), 0);
-        pf_mdspan mdsp(tracker.data(),
-                       std::dextents<size_t, 2>{m_frontierTiles_view.extent(0), m_frontierTiles_view.extent(1)});
+        std::vector<unsigned char> tracker(m_frontier_ySz * m_frontier_xSz, 0);
+        pf_mdspan                  mdsp(tracker.data(), std::dextents<size_t, 2>{m_area_ySize, m_frontier_xSz});
 
         auto const perShpScoringAdj = compute_perShapeScoringAdjustments();
 
+        auto areaView = get_mdspanOfArea();
+
         while (! m_uncoverableFrontierPoss.empty()) {
-            if (m_areaView[m_uncoverableFrontierPoss.front().y, m_uncoverableFrontierPoss.front().x] != 0) {
+            if (areaView[m_uncoverableFrontierPoss.front().y, m_uncoverableFrontierPoss.front().x] != 0) {
                 m_uncoverableFrontierPoss.pop_front();
                 continue;
             }
 
-            auto explr = explorers::Chebyshev(
-                [&](std::array<size_t, 2> const &item) { return m_areaView[item[0], item[1]] == 0; },
-                std::array{static_cast<size_t>(m_uncoverableFrontierPoss.front().y),
-                           static_cast<size_t>(m_uncoverableFrontierPoss.front().x)},
-                std::array{m_frontierTiles_view.extent(0), m_frontierTiles_view.extent(1)});
+            auto explr =
+                explorers::Chebyshev([&](std::array<size_t, 2> const &item) { return areaView[item[0], item[1]] == 0; },
+                                     std::array{static_cast<size_t>(m_uncoverableFrontierPoss.front().y),
+                                                static_cast<size_t>(m_uncoverableFrontierPoss.front().x)},
+                                     std::array{m_frontier_ySz, m_frontier_xSz});
 
             auto eva = [&](std::vector<Pos> const &poss) -> std::optional<consideredOptionsByShape_t> {
                 consideredOptionsByShape_t            toConsider(m_shapes_alterns.size());
                 bool                                  anyFilled = false;
                 typename SolverPolicy::SelectionState selectionState{};
 
+                auto frontierView = get_mdspanOfFrontier();
                 for (auto const &onePos : poss) {
                     for (auto const &prPos : get_surrOverlappingPoss<false>(onePos)) {
                         if (mdsp[prPos.y, prPos.x] != 0) { continue; }
                         mdsp[prPos.y, prPos.x] = 1;
 
-                        if (! m_frontierTiles_view[prPos.y, prPos.x].has_value()) { continue; }
+                        if (! frontierView[prPos.y, prPos.x].has_value()) { continue; }
 
                         collect_consideredOptionsAt(toConsider, anyFilled, selectionState, prPos,
-                                                    m_frontierTiles_view[prPos.y, prPos.x].value().get(),
-                                                    perShpScoringAdj, ConsideredShapeOption::Type::Gapcreating,
+                                                    frontierView[prPos.y, prPos.x].value().get(), perShpScoringAdj,
+                                                    ConsideredShapeOption::Type::Gapcreating,
                                                     [](auto const &item) { return item.ol_res.gapsCount > 1; });
                     }
                 }
@@ -745,10 +761,11 @@ private:
         typename SolverPolicy::SelectionState selectionState{};
         auto const                            perShpScoringAdj = compute_perShapeScoringAdjustments();
 
-        Pos curPos{.y = -1, .x = -1};
-        for (curPos.y = 0uz; curPos.y < m_frontierTiles_view.extent(0); ++curPos.y) {
-            for (curPos.x = 0uz; curPos.x < m_frontierTiles_view.extent(1); ++curPos.x) {
-                auto const &frontierPos = m_frontierTiles_view[curPos.y, curPos.x];
+        Pos        curPos{.y = -1, .x = -1};
+        auto const frontierView = get_mdspanOfFrontier();
+        for (curPos.y = 0uz; curPos.y < m_frontier_ySz; ++curPos.y) {
+            for (curPos.x = 0uz; curPos.x < m_frontier_xSz; ++curPos.x) {
+                auto const &frontierPos = frontierView[curPos.y, curPos.x];
                 if (frontierPos != std::nullopt) {
                     collect_consideredOptionsAt(toConsider, anyFilled, selectionState, curPos,
                                                 frontierPos.value().get(), perShpScoringAdj,
@@ -767,10 +784,11 @@ private:
         typename SolverPolicy::SelectionState selectionState{};
         auto const                            perShpScoringAdj = compute_perShapeScoringAdjustments();
 
-        Pos curPos{.y = -1, .x = -1};
-        for (curPos.y = 0uz; curPos.y < m_frontierTiles_view.extent(0); ++curPos.y) {
-            for (curPos.x = 0uz; curPos.x < m_frontierTiles_view.extent(1); ++curPos.x) {
-                auto const &frontierPos = m_frontierTiles_view[curPos.y, curPos.x];
+        Pos        curPos{.y = -1, .x = -1};
+        auto const frontierView = get_mdspanOfFrontier();
+        for (curPos.y = 0uz; curPos.y < m_frontier_ySz; ++curPos.y) {
+            for (curPos.x = 0uz; curPos.x < m_frontier_xSz; ++curPos.x) {
+                auto const &frontierPos = frontierView[curPos.y, curPos.x];
                 if (frontierPos != std::nullopt) {
                     collect_consideredOptionsAt(toConsider, anyFilled, selectionState, curPos,
                                                 frontierPos.value().get(), perShpScoringAdj,
@@ -803,7 +821,8 @@ private:
         std::vector<Pos> res{};
         long long const  halfCount = static_cast<long long>(m_shapeOLCount_border / 2);
 
-        auto olResMat_view = cso.pr_option.ol_res.ol_shp.get_mdspanOfSelf();
+        auto       olResMat_view = cso.pr_option.ol_res.ol_shp.get_mdspanOfSelf();
+        auto const frontierView  = get_mdspanOfFrontier();
         for (long long thisShpRow = cso.p.y; thisShpRow < (cso.p.y + static_cast<long long>(m_sqsz)); ++thisShpRow) {
             for (long long thisShpCol = cso.p.x; thisShpCol < (cso.p.x + static_cast<long long>(m_sqsz));
                  ++thisShpCol) {
@@ -819,12 +838,9 @@ private:
                         if (! is_posValid(Pos{.y = influRow, .x = influCol})) { continue; }
 
 
-                        if (! m_frontierTiles_view[influRow, influCol].has_value()) { continue; }
-                        for (auto const &prLine : m_frontierTiles_view[influRow, influCol].value().get()) {
-                            size_t const computedID =
-                                ((m_sqsz *
-                                  (((m_sqsz - 2) - (influRow - (thisShpRow - (static_cast<long long>(m_sqsz) - 2)))))) +
-                                 ((m_sqsz - 2) - (influCol - (thisShpCol - (static_cast<long long>(m_sqsz) - 2)))));
+                        if (! frontierView[influRow, influCol].has_value()) { continue; }
+                        for (auto const &prLine : frontierView[influRow, influCol].value().get()) {
+                            size_t const computedID = ((m_sqsz * (thisShpRow - influRow)) + (thisShpCol - influCol));
 
                             for (PastRes const &onePR : prLine) {
                                 onePointCovered |= onePR.ol_res.ol_shp.m_matrix.at(computedID);
@@ -853,19 +869,16 @@ private:
 private:
     template <bool INCLBorder = true>
     std::vector<Pos> get_surrOverlappingPoss(Pos const &shp_pos) const {
-        size_t const rows = m_areaView.extent(0);
-        size_t const cols = m_areaView.extent(1);
-
-        size_t const adj = (m_sqsz - 2 + static_cast<size_t>(INCLBorder));
 
         std::vector<Pos> res;
+        size_t const     adj = (m_sqsz - 2 + static_cast<size_t>(INCLBorder));
 
         for (long long row = shp_pos.y - static_cast<long long>(adj);
              row < (shp_pos.y + static_cast<long long>(INCLBorder)); ++row) {
             for (long long col = shp_pos.x - static_cast<long long>(adj);
                  col < (shp_pos.x + static_cast<long long>(INCLBorder)); ++col) {
-                if (row < 0 || row > (static_cast<long long>(rows - m_sqsz)) || col < 0 ||
-                    col > (static_cast<long long>(cols - m_sqsz))) {}
+                if (row < 0 || row > (static_cast<long long>(m_area_ySize - m_sqsz)) || col < 0 ||
+                    col > (static_cast<long long>(m_area_xSize - m_sqsz))) {}
                 else { res.push_back(Pos{.y = row, .x = col}); }
             }
         }
@@ -876,17 +889,13 @@ private:
     std::vector<Pos> get_surrOverlappingPoss_forWindowsAt(Pos const &shp_pos, size_t olCount) const {
         assert(olCount % 2 == 1);
 
-        size_t const rows = m_areaView.extent(0);
-        size_t const cols = m_areaView.extent(1);
-
-        long long const halfCount = static_cast<long long>(olCount / 2);
-
+        long long const  halfCount = static_cast<long long>(olCount / 2);
         std::vector<Pos> res;
 
         for (long long row = shp_pos.y - halfCount; row < (shp_pos.y + halfCount + 1); ++row) {
             for (long long col = shp_pos.x - halfCount; col < (shp_pos.x + halfCount + 1); ++col) {
-                if (row < 0 || row > (static_cast<long long>(rows - m_sqsz)) || col < 0 ||
-                    col > (static_cast<long long>(cols - m_sqsz))) {}
+                if (row < 0 || row > (static_cast<long long>(m_area_ySize - m_sqsz)) || col < 0 ||
+                    col > (static_cast<long long>(m_area_xSize - m_sqsz))) {}
                 else { res.push_back(Pos{.y = row, .x = col}); }
             }
         }
@@ -895,16 +904,15 @@ private:
     }
 
     std::optional<Shape> get_windowAtPos(Pos const &shapePos) const {
-        size_t const rows = m_areaView.extent(0);
-        size_t const cols = m_areaView.extent(1);
 
-        if (shapePos.y >= 0 && shapePos.y <= static_cast<long long>(rows - m_sqsz) && shapePos.x >= 0 &&
-            shapePos.x <= static_cast<long long>(cols - m_sqsz)) {
+        if (shapePos.y >= 0 && shapePos.y <= static_cast<long long>(m_area_ySize - m_sqsz) && shapePos.x >= 0 &&
+            shapePos.x <= static_cast<long long>(m_area_xSize - m_sqsz)) {
             auto res      = Shape::make(m_sqsz);
             auto res_view = res.get_mdspanOfSelf();
+            auto areaView = get_mdspanOfArea();
             for (long long row = shapePos.y; row < shapePos.y + static_cast<long long>(m_sqsz); ++row) {
                 for (long long col = shapePos.x; col < (shapePos.x + static_cast<long long>(m_sqsz)); ++col) {
-                    res_view[row - shapePos.y, col - shapePos.x] = m_areaView[row, col];
+                    res_view[row - shapePos.y, col - shapePos.x] = areaView[row, col];
                 }
             }
             return res;
@@ -914,8 +922,8 @@ private:
 
     bool is_posValid(Pos const &p) const noexcept {
 
-        if (p.y < 0 || p.y > (static_cast<long long>(m_areaView.extent(0)) - static_cast<long long>(m_sqsz)) ||
-            p.x < 0 || p.x > (static_cast<long long>(m_areaView.extent(1) - static_cast<long long>(m_sqsz)))) {
+        if (p.y < 0 || p.y > (static_cast<long long>(m_area_ySize) - static_cast<long long>(m_sqsz)) || p.x < 0 ||
+            p.x > (static_cast<long long>(m_area_xSize - static_cast<long long>(m_sqsz)))) {
             return false;
         }
         return true;
@@ -923,10 +931,11 @@ private:
 
     bool set_windowAtPos(Pos const &shapePos, PastRes const &pr) {
         if (! is_posValid(shapePos)) { return false; }
-        auto rm_view = pr.ol_res.ol_shp.get_mdspanOfSelf();
+        auto rm_view  = pr.ol_res.ol_shp.get_mdspanOfSelf();
+        auto areaView = get_mdspanOfArea();
         for (long long r = shapePos.y; r < (shapePos.y + static_cast<long long>(m_sqsz)); ++r) {
             for (long long c = shapePos.x; c < (shapePos.x + static_cast<long long>(m_sqsz)); ++c) {
-                m_areaView[r, c] = rm_view[r - shapePos.y, c - shapePos.x];
+                areaView[r, c] = rm_view[r - shapePos.y, c - shapePos.x];
             }
         }
         return true;
@@ -934,10 +943,11 @@ private:
 
     bool set_windowAtPos(Pos const &shapePos, Shape const &newWindow) {
         if (! is_posValid(shapePos)) { return false; }
-        auto nw_view = newWindow.get_mdspanOfSelf();
+        auto nw_view  = newWindow.get_mdspanOfSelf();
+        auto areaView = get_mdspanOfArea();
         for (long long r = shapePos.y; r < (shapePos.y + static_cast<long long>(m_sqsz)); ++r) {
             for (long long c = shapePos.x; c < (shapePos.x + static_cast<long long>(m_sqsz)); ++c) {
-                m_areaView[r, c] = nw_view[r - shapePos.y, c - shapePos.x];
+                areaView[r, c] = nw_view[r - shapePos.y, c - shapePos.x];
             }
         }
         return true;
@@ -956,11 +966,9 @@ private:
         XXH3_state_t *state = XXH3_createState();
         XXH3_64bits_reset_withSeed(state, 0);
 
-        size_t const m_area_ySz = m_areaView.extent(0);
-        size_t const m_area_xSz = m_areaView.extent(1);
         XXH3_64bits_update(state, &m_sqsz, sizeof(size_t));
-        XXH3_64bits_update(state, &m_area_ySz, sizeof(size_t));
-        XXH3_64bits_update(state, &m_area_xSz, sizeof(size_t));
+        XXH3_64bits_update(state, &m_area_ySize, sizeof(size_t));
+        XXH3_64bits_update(state, &m_area_xSize, sizeof(size_t));
         XXH3_64bits_update(state, &m_firstTilePos.y, sizeof(long long));
         XXH3_64bits_update(state, &m_firstTilePos.x, sizeof(long long));
 
@@ -1107,15 +1115,15 @@ inline BoxPacker_2D::OverlayRes BoxPacker_2D::Shape::compute_overlayWith(Shape c
     for (size_t r = 0; r < m_sqsz; ++r) {
         for (size_t c = 0; c < m_sqsz; ++c) {
             if (mv_res[r, c] == 0 && mv_gasPastMemo[r, c] == 0) {
-                curPos.y       = static_cast<long long>(r);
-                curPos.x       = static_cast<long long>(c);
-                curMemo        = Shape::make(m_sqsz);
+                curPos.y = static_cast<long long>(r);
+                curPos.x = static_cast<long long>(c);
+                curMemo.reset();
                 res.gapsCount += gapsRecLambda();
             }
             if (mv_res[r, c] != 0 && mv_filledPastMemo[r, c] == 0) {
-                curPos.y         = static_cast<long long>(r);
-                curPos.x         = static_cast<long long>(c);
-                curMemo          = Shape::make(m_sqsz);
+                curPos.y = static_cast<long long>(r);
+                curPos.x = static_cast<long long>(c);
+                curMemo.reset();
                 res.shapesCount += filledRecLambda();
             }
         }
