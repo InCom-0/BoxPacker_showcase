@@ -1,8 +1,5 @@
-
-
 #include <cstddef>
 #include <iostream>
-#include <mdspan>
 #include <memory>
 #include <optional>
 #include <ranges>
@@ -199,9 +196,8 @@ int main(int, char **) {
         return 1;
     }
 
-    auto shpsForBoxPacker_view = std::views::transform(shps.m_shapes, [](auto const &item) {
-        return incpack::BoxPacker_2D::calculate_rotFlipped(item.template conv_intoArr_bools<3uz, 3uz>());
-    });
+    auto shpsForBoxPacker_view =
+        std::views::transform(shps.m_shapes, [](auto const &item) { return item.compute_alternsRotFlip(); });
 
 
     // Pre-computing the 'example' labels
@@ -549,13 +545,15 @@ int main(int, char **) {
                                     ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 26.0f);
                                 };
 
-                                auto spn = shps.m_shapes.at(curShpIDX).get_viewInto<3uz, 3uz>();
-                                // auto spn = shps.m_shapes.at(curShpIDX).get_viewInto(3uz, 3uz);
-                                for (int tRow = 0; tRow < 3; tRow++) {
-                                    ImGui::TableNextRow(ImGuiTableRowFlags_None, 26);
-                                    for (int tCol = 0; tCol < 3; tCol++) {
 
-                                        ImGui::PushID(tRow * 3 + tCol);
+                                auto         spn      = shps.m_shapes.at(curShpIDX).get_mdspanOfSelf();
+                                size_t const shp_sqsz = shps.m_shapes.at(curShpIDX).m_sqsz;
+                                // auto spn = shps.m_shapes.at(curShpIDX).get_viewInto(3uz, 3uz);
+                                for (int tRow = 0; tRow < shp_sqsz; tRow++) {
+                                    ImGui::TableNextRow(ImGuiTableRowFlags_None, 26);
+                                    for (int tCol = 0; tCol < shp_sqsz; tCol++) {
+
+                                        ImGui::PushID(tRow * shp_sqsz + tCol);
                                         ImGui::TableSetColumnIndex(tCol);
                                         if (ImGui::Selectable("", false)) {
                                             spn[tRow, tCol] = not static_cast<bool>(spn[tRow, tCol]);
@@ -608,8 +606,7 @@ int main(int, char **) {
 
                 ImGui::PushID(0);
                 if (ImGui::Button("  ")) {
-                    shps.m_shapes.push_back(
-                        {.m_data = std::vector<uint32_t>(oneShape_sideSize * oneShape_sideSize, 0)});
+                    shps.m_shapes.push_back(incpack::BoxPacker_2D::Shape::make(5));
                     oneTree.reqdShapes.push_back(0);
                 }
                 ImGui::PopID();

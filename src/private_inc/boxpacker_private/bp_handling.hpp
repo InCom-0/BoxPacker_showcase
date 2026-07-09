@@ -5,6 +5,7 @@
 #include <concepts>
 #include <cstdint>
 #include <format>
+#include <shlobj.h>
 #include <stdexec/__detail/__execution_fwd.hpp>
 #include <utility>
 
@@ -31,66 +32,9 @@ namespace incpack = incom::standard::solvers_TEMP::packing;
 using BP_Pos      = incpack::BoxPacker_2D::Pos;
 using BP_PastRes  = incpack::BoxPacker_2D::PastRes;
 
-struct Shape {
-    std::vector<uint32_t> m_data;
-
-    template <std::size_t... Extents>
-    auto get_viewInto() {
-        return incpack::BoxPacker_2D::pf_mdspan<uint32_t, incpack::BoxPacker_2D::pf_dextents<size_t, 2>>(m_data.data(),
-                                                                                                         Extents...);
-    };
-
-    template <std::size_t... Extents>
-    auto get_viewInto() const {
-        return incpack::BoxPacker_2D::pf_mdspan<const uint32_t, incpack::BoxPacker_2D::pf_dextents<size_t, 2>>(
-            m_data.data(), Extents...);
-    };
-
-    auto get_viewInto(std::convertible_to<size_t> auto const... ids) {
-        return incpack::BoxPacker_2D::pf_mdspan<uint32_t, incpack::BoxPacker_2D::pf_dextents<size_t, 2>>(m_data.data(),
-                                                                                                         ids...);
-        // return std::mdspan(m_data.data(), std::dextents<uint32_t, sizeof...(ids)>{});
-    };
-
-    auto get_viewInto(std::convertible_to<size_t> auto const... ids) const {
-        return incpack::BoxPacker_2D::pf_mdspan<const uint32_t, incpack::BoxPacker_2D::pf_dextents<size_t, 2>>(
-            m_data.data(), ids...);
-
-        // return std::mdspan(m_data.data(), std::dextents<uint32_t, sizeof...(ids)>{});
-    };
-
-
-    template <std::size_t... Extents>
-    requires(sizeof...(Extents) > 0)
-    auto conv_intoArr_bools() const {
-        return [&]<size_t... IDx>(std::index_sequence<IDx...>) {
-            return typename c_generateNestedArray<bool, Extents...>::type{(static_cast<bool>(m_data[IDx]))...};
-        }(std::make_index_sequence<(Extents * ...)>{});
-    };
-
-
-private:
-    template <typename T, size_t First, size_t... IDs>
-    struct c_generateNestedArray {
-        static_assert(false, "Cannot do this");
-    };
-
-    template <typename T, size_t First, size_t... IDs>
-    requires(sizeof...(IDs) > 0)
-    struct c_generateNestedArray<T, First, IDs...> {
-        using type = typename std::array<typename c_generateNestedArray<T, IDs...>::type, First>;
-    };
-
-    template <typename T, size_t First, size_t... IDs>
-    requires(sizeof...(IDs) == 0)
-    struct c_generateNestedArray<T, First, IDs...> {
-        using type = typename std::array<T, First>;
-    };
-};
-
 
 struct ShapesStorage {
-    std::vector<Shape> m_shapes;
+    std::vector<incpack::BoxPacker_2D::Shape> m_shapes;
 
     bool swap(size_t cursorA, size_t cursorB) {
         if (m_shapes.size() < cursorA || m_shapes.size() < cursorB) { return false; }
@@ -149,7 +93,7 @@ struct Tree {
 struct SolveResStore {
 
     std::vector<Tree>                                                                              m_trees;
-    std::vector<std::vector<std::array<std::array<bool, 3>, 3>>> const                             m_shpsAlterns;
+    std::vector<std::vector<incpack::BoxPacker_2D::Shape>> const                                   m_shpsAlterns;
     std::vector<std::vector<std::tuple<incom::box_packer::BP_Pos, incom::box_packer::BP_PastRes>>> vecOfRes = {};
     std::vector<size_t>                                                                            endOfVisible;
 
@@ -159,9 +103,9 @@ struct SolveResStore {
 
     std::vector<ImU32> colorsToUse;
 
-    SolveResStore(std::vector<Tree> const                                            &trees,
-                  std::vector<std::vector<std::array<std::array<bool, 3>, 3>>> const &shpsAlterns,
-                  std::array<incom::standard::color::inc_sRGB, 256> const            &palette =
+    SolveResStore(std::vector<Tree> const                                      &trees,
+                  std::vector<std::vector<incpack::BoxPacker_2D::Shape>> const &shpsAlterns,
+                  std::array<incom::standard::color::inc_sRGB, 256> const      &palette =
                       incom::standard::console::color_schemes::windows_terminal::dimidium256.palette)
         : m_trees(trees), m_shpsAlterns(shpsAlterns), vecOfRes(trees.size()), endOfVisible(trees.size(), 0uz),
           m_curPlacedCount(trees.size(), std::vector<size_t>(m_shpsAlterns.size(), 0)),
@@ -273,11 +217,14 @@ inline std::tuple<std::string, ShapesStorage, std::vector<Tree>> get_integratedS
     size_t                shapeCount    = 0uz;
 
 
+    std::vector<std::vector<std::vector<unsigned char>>> tempShapes;
+
     for (size_t lineID = 0; lineID < input.size(); ++lineID) {
         if (shapeHeader(input.at(lineID).begin(), input.at(lineID).end())) {
             shapeCount++;
             lastShapeLine = 0;
-            shps.m_shapes.emplace_back();
+            shps.m_shapes.push_back(incpack::BoxPacker_2D::Shape{.m_sqsz = 0});
+            tempShapes.emplace_back();
         }
         else if (treeHeader(input.at(lineID).begin(), input.at(lineID).end())) {
             auto prsRes = incom::aoc::parseInputUsingCTRE::processOneLineRPT(input.at(lineID), d_ctre).front();
@@ -290,13 +237,47 @@ inline std::tuple<std::string, ShapesStorage, std::vector<Tree>> get_integratedS
                                                 std::ranges::to<std::vector>())});
         }
         else if (lastShapeLine) {
+            tempShapes.back().emplace_back();
             for (auto oneChr : input.at(lineID)) {
-                if (oneChr == '#') { shps.m_shapes.back().m_data.push_back(1); }
-                else if (oneChr == '.') { shps.m_shapes.back().m_data.push_back(0); }
+                if (oneChr == '#') {
+                    shps.m_shapes.back().m_matrix.push_back(1);
+                    tempShapes.back().back().push_back(1);
+                }
+                else if (oneChr == '.') {
+                    shps.m_shapes.back().m_matrix.push_back(0);
+                    tempShapes.back().back().push_back(0);
+                }
             }
         }
         else { lastShapeLine = std::nullopt; }
     }
+
+
+    size_t shapesMaxRows = std::ranges::fold_left(
+        tempShapes, 0uz, [](size_t init, auto const &rawShp) { return std::max(init, rawShp.size()); });
+    size_t       shapesMaxCols = std::ranges::fold_left(tempShapes, 0uz, [](size_t init, auto const &rawShp) {
+        return std::max(init, std::ranges::fold_left(rawShp, 0uz, [](size_t init, auto const &oneShpRow) {
+                            return std::max(init, oneShpRow.size());
+                        }));
+    });
+    size_t const desiredSqsz   = std::max(shapesMaxRows, shapesMaxCols);
+
+    for (auto shp : tempShapes) {
+        for (auto shpRow : shp) {
+            while (shpRow.size() < desiredSqsz) { shpRow.push_back(0); }
+        }
+    }
+    for (auto shp : tempShapes) {
+        while (shp.size() < desiredSqsz) { shp.emplace_back(desiredSqsz, 0); }
+        auto fff = std::ranges::fold_left(shp, std::vector<unsigned char>{},
+                                          [](std::vector<unsigned char> &&init, auto const &shpLine) {
+                                              init.append_range(shpLine);
+                                              return init;
+                                          });
+
+        shps.m_shapes.push_back({.m_sqsz = 5, .m_matrix = std::move(fff)});
+    }
+
 
     return res;
 }

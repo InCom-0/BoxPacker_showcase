@@ -315,7 +315,7 @@ public:
 
 public:
     template <size_t N>
-    BoxPacker_2D(size_t sqsz, size_t area_ySize, size_t area_xSize,
+    BoxPacker_2D(size_t const sqsz, size_t const area_ySize, size_t const area_xSize,
                  std::vector<std::array<std::array<bool, N>, N>> const &shps, std::vector<size_t> const &shps_counts,
                  size_t const firstTile_yPos = 0, size_t const firstTile_xPos = 0, pastResMap_t const &pastReslts = {})
         : BoxPacker_2D(sqsz, area_ySize, area_xSize,
@@ -327,7 +327,7 @@ public:
                        shps_counts, firstTile_yPos, firstTile_xPos, pastReslts) {}
 
     template <size_t N>
-    BoxPacker_2D(size_t sqsz, size_t area_ySize, size_t area_xSize,
+    BoxPacker_2D(size_t const sqsz, size_t const area_ySize, size_t const area_xSize,
                  std::vector<std::vector<std::array<std::array<bool, N>, N>>> const &shpsAltrs,
                  std::vector<size_t> const &shps_counts, size_t const firstTile_yPos = 0,
                  size_t const firstTile_xPos = 0, pastResMap_t const &pastReslts = {})
