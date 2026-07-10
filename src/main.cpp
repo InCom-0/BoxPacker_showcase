@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstddef>
 #include <iostream>
 #include <memory>
@@ -70,7 +71,7 @@ void handle_upload_file(std::string const &filename, std::string const &mime_typ
         std::vector<std::tuple<std::string, incom::box_packer::ShapesStorage, std::vector<incom::box_packer::Tree>>> *>(
         callback_data)};
     g_uploaded_files.push_back(UploadedFile{filename, mime_type, std::string(buffer.data(), buffer.size())});
-    cb_data.push_back(incom::box_packer::get_externalSampleData(g_uploaded_files.back().data));
+    cb_data.push_back(incom::box_packer::parse_externalData(g_uploaded_files.back().data));
     std::get<0>(cb_data.back()) = filename;
 }
 
@@ -187,7 +188,7 @@ int main(int, char **) {
     std::string df{BOXPACKER_SAMPLE_INPUT};
 
     std::vector<std::tuple<std::string, incom::box_packer::ShapesStorage, std::vector<incom::box_packer::Tree>>>
-        sampleInputs{incom::box_packer::get_integratedSampleData(df)};
+        sampleInputs{incom::box_packer::parse_integratedData(df)};
 
     auto [_, shps, trees] = sampleInputs.front();
 
@@ -513,6 +514,21 @@ int main(int, char **) {
                                   ImGuiWindowFlags_HorizontalScrollbar);
                 ImGui::SeparatorText("Custom shapes, counts and sizes");
 
+
+                for (size_t first = 0uz; first < (shps.m_shapes.size() - 1); ++first) {
+                    if (shps.m_shapes.at(first).m_sqsz != shps.m_shapes.at(first + 1).m_sqsz) {
+                        shps.m_shapes.clear();
+                        break;
+                    }
+                }
+                // TODO: Change the above for the code below once std::views::pairwise is available everywhere (minimum LLVM22, GCC13,  MSVC 14.37)
+                // if (std::ranges::any_of(std::views::pairwise(shps.m_shapes), [](auto const &pairOfItems) {
+                //         return std::get<0>(pairOfItems).m_sqsz != std::get<1>(pairOfItems).m_sqsz;
+                //     })) {
+                //     // Need to clear shps if some 'shape size' does not match the others ... should never really
+                //     happen shps.m_shapes.clear();
+                // }
+
                 {
                     size_t const rowCount  = (shps.m_shapes.size() + 2uz) / 3uz;
                     size_t       curShpIDX = 0uz;
@@ -522,7 +538,7 @@ int main(int, char **) {
                         for (int c = 0; c < colCount; ++c) {
                             ImGui::BeginGroup();
 
-                            // Shape table header (count of shapes DragInt)
+                            // Shape creator header (count of shapes DragInt)
                             int curVal = oneTree.reqdShapes.at(curShpIDX);
                             ImGui::PushItemWidth(81.0);
                             ImGui::PushID(r * 3 + c);
@@ -531,9 +547,10 @@ int main(int, char **) {
                             ImGui::PopID();
                             ImGui::PopItemWidth();
 
-                            // Shape table begin
+                            // Shape creator begin
+                            size_t const shp_sqsz = (shps.m_shapes.at(curShpIDX).m_sqsz - 1); // Without borders
                             ImGui::PushID(r * rowCount + c);
-                            if (ImGui::BeginTable("OneShape_table", 3,
+                            if (ImGui::BeginTable("OneShape_table", shp_sqsz - 1,
                                                   ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV |
                                                       ImGuiTableFlags_BordersH | ImGuiTableFlags_SizingFixedSame |
                                                       ImGuiTableFlags_NoHostExtendX | ImGuiTableFlags_NoPadOuterX |
@@ -546,15 +563,13 @@ int main(int, char **) {
                                 };
 
 
-                                auto         spn      = shps.m_shapes.at(curShpIDX).get_mdspanOfSelf();
-                                size_t const shp_sqsz = shps.m_shapes.at(curShpIDX).m_sqsz;
-                                // auto spn = shps.m_shapes.at(curShpIDX).get_viewInto(3uz, 3uz);
-                                for (int tRow = 0; tRow < shp_sqsz; tRow++) {
+                                auto spn = shps.m_shapes.at(curShpIDX).get_mdspanOfSelf();
+                                for (int tRow = 1; tRow < shp_sqsz; tRow++) {
                                     ImGui::TableNextRow(ImGuiTableRowFlags_None, 26);
-                                    for (int tCol = 0; tCol < shp_sqsz; tCol++) {
+                                    for (int tCol = 1; tCol < shp_sqsz; tCol++) {
 
                                         ImGui::PushID(tRow * shp_sqsz + tCol);
-                                        ImGui::TableSetColumnIndex(tCol);
+                                        ImGui::TableSetColumnIndex(tCol - 1);
                                         if (ImGui::Selectable("", false)) {
                                             spn[tRow, tCol] = not static_cast<bool>(spn[tRow, tCol]);
                                         }
@@ -912,12 +927,15 @@ int main(int, char **) {
                         // ##################################
                         // ### Sahpes used by the result
                         // ##################################
+
                         for (int r = 0; r < selJobSolvRes.m_shpsAlterns.size(); ++r) {
+                            size_t const shp_sqsz =
+                                (selJobSolvRes.m_shpsAlterns.at(r).at(0).m_sqsz - 1); // Without borders
                             ImGui::BeginGroup();
 
                             // Shape table begin
                             ImGui::PushID(r);
-                            if (ImGui::BeginTable("OneShape_table", 3,
+                            if (ImGui::BeginTable("OneShape_table", shp_sqsz - 1,
                                                   ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV |
                                                       ImGuiTableFlags_BordersH | ImGuiTableFlags_SizingFixedSame |
                                                       ImGuiTableFlags_NoHostExtendX | ImGuiTableFlags_NoPadOuterX |
@@ -925,21 +943,20 @@ int main(int, char **) {
                                                   ImVec2(0.0f, 0.0f))) {
 
 
-                                for (int c = 0; c < 3; ++c) {
+                                for (int c = 0; c < shp_sqsz - 1; ++c) {
                                     ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 26.0f);
                                 };
 
-                                auto &spn = selJobSolvRes.m_shpsAlterns.at(r).at(0);
-                                // auto spn = shps.m_shapes.at(curShpIDX).get_viewInto(3uz, 3uz);
-                                for (int tRow = 0; tRow < 3; tRow++) {
+                                auto const shpView = selJobSolvRes.m_shpsAlterns.at(r).at(0).get_mdspanOfSelf();
+                                for (int tRow = 1; tRow < shp_sqsz; tRow++) {
                                     ImGui::TableNextRow(ImGuiTableRowFlags_None, 26);
-                                    for (int tCol = 0; tCol < 3; tCol++) {
+                                    for (int tCol = 1; tCol < shp_sqsz; tCol++) {
 
-                                        ImGui::PushID(tRow * 3 + tCol);
-                                        ImGui::TableSetColumnIndex(tCol);
+                                        ImGui::PushID(tRow * shp_sqsz + tCol - 1);
+                                        ImGui::TableSetColumnIndex(tCol - 1);
 
                                         ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg,
-                                                               spn[tRow][tCol] != 0
+                                                               shpView[tRow, tCol] != 0
                                                                    ? selJobSolvRes.colorsToUse.at(r + 1)
                                                                    : selJobSolvRes.colorsToUse.at(0));
 
@@ -958,8 +975,9 @@ int main(int, char **) {
                             int curVal = 0;
 
                             ImGui::PushStyleColor(ImGuiCol_PlotHistogram, selJobSolvRes.colorsToUse.at(r + 1));
-                            ImGui::Text("Requested: %lu", selJobSolvRes.m_trees.at(sel_resID.value()).reqdShapes.at(r));
-                            ImGui::Text("Shape alterns: %lu", selJobSolvRes.m_shpsAlterns.at(r).size());
+                            ImGui::Text("Requested: %llu",
+                                        selJobSolvRes.m_trees.at(sel_resID.value()).reqdShapes.at(r));
+                            ImGui::Text("Shape alterns: %zu", selJobSolvRes.m_shpsAlterns.at(r).size());
                             ImGui::Dummy(ImGui::GetItemRectSize());
 
 
@@ -968,7 +986,7 @@ int main(int, char **) {
                                 totalToPlace - selJobSolvRes.m_curPlacedCount.at(sel_resID.value()).at(r);
 
                             char buf[32];
-                            sprintf(buf, "%lu/%lu", remainingToPlace, totalToPlace);
+                            sprintf(buf, "%zu/%zu", remainingToPlace, totalToPlace);
                             ImGui::ProgressBar(static_cast<float>(remainingToPlace) / totalToPlace,
                                                ImVec2(ImGui::GetItemRectSize().x, 0.f), buf);
 

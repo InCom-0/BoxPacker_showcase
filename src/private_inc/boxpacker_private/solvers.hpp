@@ -352,7 +352,6 @@ public:
     BoxPacker_2D &operator=(BoxPacker_2D &&)      = default;
 
 
-private:
     BoxPacker_2D(size_t const sqsz, size_t const area_ySize, size_t const area_xSize,
                  std::vector<std::vector<Shape>> const &shps_alterns, std::vector<size_t> const &shps_counts,
                  size_t const firstTile_yPos = 0, size_t const firstTile_xPos = 0, pastResMap_t const &pastReslts = {})

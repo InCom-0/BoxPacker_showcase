@@ -54,7 +54,6 @@ public:
 
     Job_PRE()                          = delete;
     Job_PRE(Job_PRE &&)                = delete;
-    Job_PRE(Job_PRE &)                 = delete;
     Job_PRE(Job_PRE const &)           = delete;
     Job_PRE operator=(Job_PRE &)       = delete;
     Job_PRE operator=(Job_PRE const &) = delete;
