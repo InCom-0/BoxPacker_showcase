@@ -142,7 +142,6 @@ public:
         size_t count_filledBorderLess() const {
             size_t count      = 0;
             auto   matrixView = get_mdspanOfSelf();
-            if (m_sqsz < 3) { return 0; }
             for (size_t r = 1; r < (m_sqsz - 1); ++r) {
                 for (size_t c = 1; c < (m_sqsz - 1); ++c) { count += (matrixView[r, c] != 0); }
             }
@@ -159,8 +158,8 @@ public:
             ankerl::unordered_dense::set<Shape, standard::hashing::XXH3Hasher> hlprMP;
 
             auto matriRotateLeft = [](auto &mdspn_square) -> void {
-                int sideLength = mdspn_square.extent(0) - 1;
-                if (sideLength < 1 || mdspn_square.extent(1) != sideLength) { return; }
+                int const sideLength = mdspn_square.extent(0) - 1;
+                if (sideLength < 1 || (sideLength != (mdspn_square.extent(1) - 1))) { return; }
 
                 int circles = (sideLength + 2) / 2;
                 for (int cir = 0; cir < circles; cir++) {
