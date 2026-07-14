@@ -250,12 +250,12 @@ inline std::tuple<std::string, ShapesStorage, std::vector<Tree>> parse_inputData
     });
     size_t const desiredSqsz   = std::max(shapesMaxRows, shapesMaxCols);
 
-    for (auto shp : tempShapes) {
-        for (auto shpRow : shp) {
+    for (auto &shp : tempShapes) {
+        for (auto &shpRow : shp) {
             while (shpRow.size() < desiredSqsz) { shpRow.push_back(0); }
         }
     }
-    for (auto shp : tempShapes) {
+    for (auto &shp : tempShapes) {
         while (shp.size() < desiredSqsz) { shp.emplace_back(desiredSqsz, 0); }
         auto oneShp_matrix = std::ranges::fold_left(shp, std::vector<unsigned char>(desiredSqsz + 2, 0),
                                                     [](std::vector<unsigned char> &&init, auto const &shpLine) {
@@ -278,7 +278,7 @@ inline std::tuple<std::string, ShapesStorage, std::vector<Tree>> parse_integrate
 }
 
 inline std::tuple<std::string, ShapesStorage, std::vector<Tree>> parse_externalData(std::string &data_asString) {
-    auto untilNewLine = ctre::search<R"([^\n]+)">;
+    auto untilNewLine = ctre::search<R"([^\r\n]+)">;
     return parse_inputData(incom::aoc::parseInputUsingCTRE::processOneLineRPT(data_asString, untilNewLine).front());
 }
 
@@ -288,7 +288,8 @@ inline constexpr auto bp_asyncExecute =
        moodycamel::ReaderWriterQueue<std::tuple<size_t, incpack::BoxPacker_2D::Pos, incpack::BoxPacker_2D::PastRes>> &q)
     -> exec::basic_task<void, experimental::execution::__task::inline_task_context<void>> {
     co_await stdexec::schedule(sch);
-    incpack::BoxPacker_2D solver(5, trees.front().yDim, trees.front().xDim, shpsToUse, trees.front().reqdShapes);
+    incpack::BoxPacker_2D solver(shpsToUse.front().front().m_sqsz, trees.front().yDim, trees.front().xDim, shpsToUse,
+                                 trees.front().reqdShapes);
 
     auto stopTokOpt = co_await stdexec::stopped_as_optional(stdexec::get_stop_token());
 
