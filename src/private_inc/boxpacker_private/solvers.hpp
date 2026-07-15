@@ -195,6 +195,81 @@ public:
             return std::vector<Shape>(hlprMP.begin(), hlprMP.end());
         }
 
+        bool resize_safe(size_t const target_sqsz) {
+
+            if (target_sqsz == m_sqsz) { return false; }
+
+            else if (target_sqsz > m_sqsz) {
+                size_t const targetTotalSz = (target_sqsz * target_sqsz);
+                while (m_matrix.size() < targetTotalSz) { m_matrix.push_back(0); }
+
+                size_t const rowDelta = m_sqsz - target_sqsz;
+                for (int oldRowID = (static_cast<int>(m_sqsz) - 1); oldRowID > 0; --oldRowID) {
+                    size_t const fromStart = oldRowID * m_sqsz;
+                    std::ranges::rotate(m_matrix.begin() + fromStart, m_matrix.begin() + fromStart + m_sqsz,
+                                        m_matrix.begin() + fromStart + m_sqsz + (rowDelta * oldRowID));
+                }
+            }
+            // The compiler will strip this 'unnecessary' condition
+            else if (target_sqsz < m_sqsz) {
+                size_t rowDelta     = m_sqsz - target_sqsz;
+                size_t colDelta     = rowDelta;
+                auto   row_startEnd = std::pair{0uz, m_sqsz};
+                auto   col_startEnd = row_startEnd;
+
+                // Rows: Can remove from the end?
+                for (size_t skip = (m_sqsz * (m_sqsz - 1)); (skip > 0uz && rowDelta != 0); skip -= m_sqsz) {
+                    if (std::ranges::all_of(std::views::drop(m_matrix, skip) | std::views::take(m_sqsz),
+                                            [](auto const chr) { return chr == 0; })) {
+                        row_startEnd.second--;
+                        rowDelta--;
+                    }
+                    else { break; }
+                }
+                // Rows: Can remove from the beginning?
+                for (size_t skip = 0uz; (skip < m_matrix.size() && rowDelta != 0); skip += m_sqsz) {
+                    if (std::ranges::all_of(std::views::drop(m_matrix, skip) | std::views::take(m_sqsz),
+                                            [](auto const chr) { return chr == 0; })) {
+                        row_startEnd.first--;
+                        rowDelta--;
+                    }
+                    else { return false; } // We cannot safely resize (downsize) because each row has some data
+                }
+
+
+                // Cols: Can remove from the end?
+                for (size_t dropAdj = 1; (dropAdj < m_sqsz && colDelta != 0); ++dropAdj) {
+                    if (std::ranges::all_of(std::views::drop(m_matrix, m_sqsz - dropAdj) | std::views::stride(m_sqsz),
+                                            [](auto const chr) { return chr == 0; })) {
+                        col_startEnd.second--;
+                        colDelta--;
+                    }
+                    else { break; }
+                }
+
+                // Cols: Can remove from the beginning?
+                for (size_t dropAdj = 0; (dropAdj < m_sqsz && colDelta != 0); ++dropAdj) {
+                    if (std::ranges::all_of(std::views::drop(m_matrix, dropAdj) | std::views::stride(m_sqsz),
+                                            [](auto const chr) { return chr == 0; })) {
+                        col_startEnd.first--;
+                        colDelta--;
+                    }
+                    else { return false; }
+                }
+            }
+
+
+            m_sqsz = target_sqsz;
+            return true;
+        }
+
+        bool resize_force(size_t const target_sqsz) {
+
+            m_sqsz = target_sqsz;
+            return true;
+        }
+
+
         friend constexpr void XXH3Hash(Shape const &input, XXH3_state_t *state) {
             XXH3_64bits_update(state, input.m_matrix.data(),
                                sizeof(typename std::remove_cvref_t<decltype(input.m_matrix)>::value_type) *
@@ -1072,13 +1147,13 @@ inline BoxPacker_2D::OverlayRes BoxPacker_2D::Shape::compute_overlayWith(Shape c
         if (mv_gasPastMemo[curPos.y, curPos.x] != 0) { return false; }
         mv_gasPastMemo[curPos.y, curPos.x] = 1;
 
-        for (long long row : {-1LL, 1LL}) {
+        for (long long const &row : {-1LL, 1LL}) {
             if (curPos.y + row < 0 || curPos.y + row >= static_cast<long long>(m_sqsz)) { continue; }
             curPos.y += row;
             if (! self()) { return false; }
             curPos.y -= row;
         }
-        for (long long col : {-1LL, 1LL}) {
+        for (long long const &col : {-1LL, 1LL}) {
             if (curPos.x + col < 0 || curPos.x + col >= static_cast<long long>(m_sqsz)) { continue; }
             curPos.x += col;
             if (! self()) { return false; }
@@ -1095,13 +1170,13 @@ inline BoxPacker_2D::OverlayRes BoxPacker_2D::Shape::compute_overlayWith(Shape c
         if (mv_filledPastMemo[curPos.y, curPos.x] != 0) { return false; }
         mv_filledPastMemo[curPos.y, curPos.x] = 1;
 
-        for (long long row : {-1LL, 1LL}) {
+        for (long long const &row : {-1LL, 1LL}) {
             if (curPos.y + row < 0 || curPos.y + row >= static_cast<long long>(m_sqsz)) { continue; }
             curPos.y += row;
             if (! self()) { return false; }
             curPos.y -= row;
         }
-        for (long long col : {-1LL, 1LL}) {
+        for (long long const &col : {-1LL, 1LL}) {
             if (curPos.x + col < 0 || curPos.x + col >= static_cast<long long>(m_sqsz)) { continue; }
             curPos.x += col;
             if (! self()) { return false; }

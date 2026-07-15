@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <format>
 #include <stdexec/__detail/__execution_fwd.hpp>
@@ -91,6 +92,7 @@ struct Tree {
 struct SolveResStore {
 
     std::vector<Tree>                                                                              m_trees;
+    std::size_t                                                                                    m_sqsz;
     std::vector<std::vector<incpack::BoxPacker_2D::Shape>> const                                   m_shpsAlterns;
     std::vector<std::vector<std::tuple<incom::box_packer::BP_Pos, incom::box_packer::BP_PastRes>>> vecOfRes = {};
     std::vector<size_t>                                                                            endOfVisible;
@@ -105,7 +107,8 @@ struct SolveResStore {
                   std::vector<std::vector<incpack::BoxPacker_2D::Shape>> const &shpsAlterns,
                   std::array<incom::standard::color::inc_sRGB, 256> const      &palette =
                       incom::standard::console::color_schemes::windows_terminal::dimidium256.palette)
-        : m_trees(trees), m_shpsAlterns(shpsAlterns), vecOfRes(trees.size()), endOfVisible(trees.size(), 0uz),
+        : m_trees(trees), m_sqsz(shpsAlterns.front().front().m_sqsz), m_shpsAlterns(shpsAlterns),
+          vecOfRes(trees.size()), endOfVisible(trees.size(), 0uz),
           m_curPlacedCount(trees.size(), std::vector<size_t>(m_shpsAlterns.size(), 0)),
           m_reaAreaMaps(std::from_range, std::views::transform(trees,
                                                                [](auto const &item) {
@@ -114,7 +117,17 @@ struct SolveResStore {
                                                                })),
           colorsToUse(std::from_range, std::views::transform(palette, [](auto const &oneCol) {
                           return ImU32(ImColor(oneCol.r, oneCol.g, oneCol.b));
-                      })) {}
+                      })) {
+        // auto rrr = std::ranges::fold_left(std::views::transform(std::views::take(shpsAlterns, 1),
+        //                                                         [](auto const &shpAlterns) {
+        //                                                             return std::ranges::fold_left(
+        //                                                                 std::views::take(shpAlterns, 1), 0uz,
+        //                                                                 [](size_t &&init, auto const &oneShp) {
+        //                                                                     return std::max(init, oneShp.m_sqsz);
+        //                                                                 });
+        //                                                         }),
+        //                                   0uz, std::plus{});
+    }
 
 
     auto get_mdspan_areaTree(size_t const id) {
