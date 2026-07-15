@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <cstddef>
 #include <deque>
 #include <functional>
@@ -79,7 +80,12 @@ public:
     };
 
 
-    struct Shape {
+    class Shape {
+    private:
+        bool _upsize(size_t const target_sqsz);
+        bool _downsize(size_t const target_sqsz);
+
+    public:
         size_t                     m_sqsz = 0;
         std::vector<unsigned char> m_matrix;
 
@@ -195,77 +201,106 @@ public:
             return std::vector<Shape>(hlprMP.begin(), hlprMP.end());
         }
 
+
+        bool verify_borderExists(size_t const borderThickness) {
+            if (std::ranges::any_of(std::views::take(m_matrix, borderThickness * m_sqsz),
+                                    [](auto const chr) { return (chr != 0); })) {
+                return false;
+            }
+            if (std::ranges::any_of(std::views::drop(m_matrix, m_matrix.size() - (borderThickness * m_sqsz)),
+                                    [](auto const chr) { return (chr != 0); })) {
+                return false;
+            }
+            for (size_t skip = 0uz; skip < borderThickness; ++skip) {
+                if (std::ranges::any_of(std::views::drop(m_matrix, skip) | std::views::stride(m_sqsz),
+                                        [](auto const chr) { return (chr != 0); })) {
+                    return false;
+                }
+                if (std::ranges::any_of(std::views::drop(m_matrix, m_sqsz - 1 - skip) | std::views::stride(m_sqsz),
+                                        [](auto const chr) { return (chr != 0); })) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        // If something part of the border had to be changed then returns 'true', otherwise returns 'false'
+        bool change_forceBorder(size_t const borderThickness) {
+            bool res = false;
+            for (auto &oneChr : std::views::take(m_matrix, borderThickness * m_sqsz)) {
+                res    |= (oneChr != 0);
+                oneChr  = 0;
+            }
+            for (auto &oneChr : std::views::drop(m_matrix, m_matrix.size() - (borderThickness * m_sqsz))) {
+                res    |= (oneChr != 0);
+                oneChr  = 0;
+            }
+            for (size_t skip = 0uz; skip < borderThickness; ++skip) {
+                for (auto &oneChr : std::views::drop(m_matrix, skip) | std::views::stride(m_sqsz)) {
+                    res    |= (oneChr != 0);
+                    oneChr  = 0;
+                }
+                for (auto &oneChr : std::views::drop(m_matrix, m_sqsz - 1 - skip) | std::views::stride(m_sqsz)) {
+                    res    |= (oneChr != 0);
+                    oneChr  = 0;
+                }
+            }
+
+            return res;
+        }
+
+        void add_border(size_t const borderThickness) {
+            size_t const countToAdd    = (4 * borderThickness) * (m_sqsz + borderThickness);
+            size_t const targetTotalSz = m_matrix.size() + countToAdd;
+            size_t const target_sqsz   = m_sqsz + (2 * borderThickness);
+
+            while (m_matrix.size() < targetTotalSz) { m_matrix.push_back(0); }
+
+            size_t const rowDelta = target_sqsz - m_sqsz;
+            for (int oldRowID = (static_cast<int>(m_sqsz) - 1); oldRowID > 0; --oldRowID) {
+                size_t const fromStart = oldRowID * m_sqsz;
+                std::ranges::rotate(m_matrix.begin() + fromStart, m_matrix.begin() + fromStart + m_sqsz,
+                                    m_matrix.begin() + fromStart + m_sqsz + (rowDelta * oldRowID) + borderThickness +
+                                        (target_sqsz * borderThickness));
+            }
+
+            m_sqsz = target_sqsz;
+        }
+
+
+        // Return true if resized, returns false otherwise (no change to 'this')
         bool resize_safe(size_t const target_sqsz) {
-
-            if (target_sqsz == m_sqsz) { return false; }
-
-            else if (target_sqsz > m_sqsz) {
-                size_t const targetTotalSz = (target_sqsz * target_sqsz);
-                while (m_matrix.size() < targetTotalSz) { m_matrix.push_back(0); }
-
-                size_t const rowDelta = m_sqsz - target_sqsz;
-                for (int oldRowID = (static_cast<int>(m_sqsz) - 1); oldRowID > 0; --oldRowID) {
-                    size_t const fromStart = oldRowID * m_sqsz;
-                    std::ranges::rotate(m_matrix.begin() + fromStart, m_matrix.begin() + fromStart + m_sqsz,
-                                        m_matrix.begin() + fromStart + m_sqsz + (rowDelta * oldRowID));
-                }
-            }
+            if (target_sqsz > m_sqsz) { return _upsize(target_sqsz); }
             // The compiler will strip this 'unnecessary' condition
-            else if (target_sqsz < m_sqsz) {
-                size_t rowDelta     = m_sqsz - target_sqsz;
-                size_t colDelta     = rowDelta;
-                auto   row_startEnd = std::pair{0uz, m_sqsz};
-                auto   col_startEnd = row_startEnd;
+            else if (target_sqsz < m_sqsz) { return _downsize(target_sqsz); }
+            return false;
+        }
 
-                // Rows: Can remove from the end?
-                for (size_t skip = (m_sqsz * (m_sqsz - 1)); (skip > 0uz && rowDelta != 0); skip -= m_sqsz) {
-                    if (std::ranges::all_of(std::views::drop(m_matrix, skip) | std::views::take(m_sqsz),
-                                            [](auto const chr) { return chr == 0; })) {
-                        row_startEnd.second--;
-                        rowDelta--;
-                    }
-                    else { break; }
-                }
-                // Rows: Can remove from the beginning?
-                for (size_t skip = 0uz; (skip < m_matrix.size() && rowDelta != 0); skip += m_sqsz) {
-                    if (std::ranges::all_of(std::views::drop(m_matrix, skip) | std::views::take(m_sqsz),
-                                            [](auto const chr) { return chr == 0; })) {
-                        row_startEnd.first--;
-                        rowDelta--;
-                    }
-                    else { return false; } // We cannot safely resize (downsize) because each row has some data
-                }
-
-
-                // Cols: Can remove from the end?
-                for (size_t dropAdj = 1; (dropAdj < m_sqsz && colDelta != 0); ++dropAdj) {
-                    if (std::ranges::all_of(std::views::drop(m_matrix, m_sqsz - dropAdj) | std::views::stride(m_sqsz),
-                                            [](auto const chr) { return chr == 0; })) {
-                        col_startEnd.second--;
-                        colDelta--;
-                    }
-                    else { break; }
-                }
-
-                // Cols: Can remove from the beginning?
-                for (size_t dropAdj = 0; (dropAdj < m_sqsz && colDelta != 0); ++dropAdj) {
-                    if (std::ranges::all_of(std::views::drop(m_matrix, dropAdj) | std::views::stride(m_sqsz),
-                                            [](auto const chr) { return chr == 0; })) {
-                        col_startEnd.first--;
-                        colDelta--;
-                    }
-                    else { return false; }
-                }
-            }
-
+        // Always resizes
+        // Return true if it were 'forced', returns false if as if by resize_safe()
+        bool resize_force(size_t const target_sqsz) {
+            if (resize_safe(target_sqsz)) { return false; }
 
             m_sqsz = target_sqsz;
             return true;
         }
 
-        bool resize_force(size_t const target_sqsz) {
+        // Return true if resized, returns false otherwise (no change to 'this')
+        //
+        bool resize_safe(size_t const target_sqsz, size_t const borderThickness) {
+            if (borderThickness > m_sqsz || borderThickness > target_sqsz) { return false; }
+            else if (borderThickness == 0uz) { return resize_safe(target_sqsz); }
 
-            m_sqsz = target_sqsz;
+
+            // Verify that there actually is a border at this time, if not return 'false'
+            if (not verify_borderExists(borderThickness)) { return false; }
+            
+            // Actually make the border
+            {
+
+            }
+
+
             return true;
         }
 
@@ -275,7 +310,10 @@ public:
                                sizeof(typename std::remove_cvref_t<decltype(input.m_matrix)>::value_type) *
                                    input.m_matrix.size());
         }
+
+    private:
     };
+
 
     struct OverlayRes {
         Shape  ol_shp;
@@ -1080,6 +1118,82 @@ public:
         return std::vector<decltype(input)>(hlprMP.begin(), hlprMP.end());
     }
 };
+
+inline bool BoxPacker_2D::Shape::_upsize(size_t const target_sqsz) {
+    size_t const targetTotalSz = (target_sqsz * target_sqsz);
+    while (m_matrix.size() < targetTotalSz) { m_matrix.push_back(0); }
+
+    size_t const rowDelta = target_sqsz - m_sqsz;
+    for (int oldRowID = (static_cast<int>(m_sqsz) - 1); oldRowID > 0; --oldRowID) {
+        size_t const fromStart = oldRowID * m_sqsz;
+        std::ranges::rotate(m_matrix.begin() + fromStart, m_matrix.begin() + fromStart + m_sqsz,
+                            m_matrix.begin() + fromStart + m_sqsz + (rowDelta * oldRowID));
+    }
+
+    m_sqsz = target_sqsz;
+    return true;
+}
+inline bool BoxPacker_2D::Shape::_downsize(size_t const target_sqsz) {
+    size_t       rowDelta     = m_sqsz - target_sqsz;
+    size_t       colDelta     = rowDelta;
+    auto         row_startEnd = std::pair{0uz, m_sqsz};
+    auto         col_startEnd = row_startEnd;
+    size_t const tarItemCount = target_sqsz * target_sqsz;
+
+    // Rows: Can remove from the end?
+    for (long long skip = (static_cast<long long>(m_matrix.size()) - static_cast<long long>(m_sqsz));
+         (skip > 0ll && rowDelta != 0); skip -= m_sqsz) {
+        if (std::ranges::all_of(std::views::drop(m_matrix, skip) | std::views::take(m_sqsz),
+                                [](auto const chr) { return chr == 0; })) {
+            row_startEnd.second--;
+            rowDelta--;
+        }
+        else { break; } // We break only if we can't remove all we need from the end, we shall try from the beginning
+    }
+    // Rows: Can remove from the beginning?
+    for (size_t skip = 0uz; (skip < m_matrix.size() && rowDelta != 0); skip += m_sqsz) {
+        if (std::ranges::all_of(std::views::drop(m_matrix, skip) | std::views::take(m_sqsz),
+                                [](auto const chr) { return chr == 0; })) {
+            row_startEnd.first++;
+            rowDelta--;
+        }
+        else { return false; } // We cannot safely resize (downsize) because each row has some data
+    }
+
+
+    // Cols: Can remove from the end?
+    for (size_t dropAdj = 1; (dropAdj < m_sqsz && colDelta != 0); ++dropAdj) {
+        if (std::ranges::all_of(std::views::drop(m_matrix, m_sqsz - dropAdj) | std::views::stride(m_sqsz),
+                                [](auto const chr) { return chr == 0; })) {
+            col_startEnd.second--;
+            colDelta--;
+        }
+        else { break; } // We break only if we can't remove all we need from the end, we shall try from the beginning
+    }
+
+    // Cols: Can remove from the beginning?
+    for (size_t dropAdj = 0; (dropAdj < m_sqsz && colDelta != 0); ++dropAdj) {
+        if (std::ranges::all_of(std::views::drop(m_matrix, dropAdj) | std::views::stride(m_sqsz),
+                                [](auto const chr) { return chr == 0; })) {
+            col_startEnd.first++;
+            colDelta--;
+        }
+        else { return false; }
+    }
+
+    for (size_t curRow = 0; curRow < target_sqsz; ++curRow) {
+
+        std::ranges::rotate(m_matrix.begin() + (curRow * target_sqsz),
+                            m_matrix.begin() + (((row_startEnd.first + curRow) * m_sqsz) + (col_startEnd.first)),
+                            m_matrix.begin() + (((row_startEnd.first + curRow) * m_sqsz) + (col_startEnd.first)) +
+                                target_sqsz);
+    }
+
+    m_matrix.resize(tarItemCount);
+
+    m_sqsz = target_sqsz;
+    return true;
+}
 
 inline BoxPacker_2D::OverlayRes BoxPacker_2D::Shape::compute_overlayWith(Shape const &other) const {
     assert(m_sqsz == other.m_sqsz);

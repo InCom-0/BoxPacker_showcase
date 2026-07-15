@@ -192,6 +192,24 @@ int main(int, char **) {
 
     auto [_, shps, trees] = sampleInputs.front();
 
+
+    for (auto &shp : shps.m_shapes) {
+        for (size_t lineID = 0; lineID < shp.m_sqsz; ++lineID) {
+            auto vvv = std::views::drop(shp.m_matrix, lineID * shp.m_sqsz) | std::views::take(shp.m_sqsz) |
+                       std::views::transform([](auto &&chr) { return static_cast<char>(chr + 48); });
+            std::cout << std::format("{:s}\n", vvv);
+        }
+
+        shp.add_border(2);
+
+        for (size_t lineID = 0; lineID < shp.m_sqsz; ++lineID) {
+            auto vvv = std::views::drop(shp.m_matrix, lineID * shp.m_sqsz) | std::views::take(shp.m_sqsz) |
+                       std::views::transform([](auto &&chr) { return static_cast<char>(chr + 48); });
+            std::cout << std::format("{:s}\n", vvv);
+        }
+        int a = 0;
+    }
+
     if (trees.empty()) {
         std::cerr << "Failed to load sample input from: " << df << '\n';
         return 1;
@@ -521,8 +539,9 @@ int main(int, char **) {
                         break;
                     }
                 }
-                // TODO: Change the above for the code below once std::views::pairwise is available everywhere (minimum LLVM22, GCC13,  MSVC 14.37)
-                // if (std::ranges::any_of(std::views::pairwise(shps.m_shapes), [](auto const &pairOfItems) {
+                // TODO: Change the above for the code below once std::views::pairwise is available everywhere (minimum
+                // LLVM22, GCC13,  MSVC 14.37) if (std::ranges::any_of(std::views::pairwise(shps.m_shapes), [](auto
+                // const &pairOfItems) {
                 //         return std::get<0>(pairOfItems).m_sqsz != std::get<1>(pairOfItems).m_sqsz;
                 //     })) {
                 //     // Need to clear shps if some 'shape size' does not match the others ... should never really
