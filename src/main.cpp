@@ -200,7 +200,7 @@ int main(int, char **) {
             std::cout << std::format("{:s}\n", vvv);
         }
 
-        shp.add_border(2);
+        shp.resize_safe(9, 1);
 
         for (size_t lineID = 0; lineID < shp.m_sqsz; ++lineID) {
             auto vvv = std::views::drop(shp.m_matrix, lineID * shp.m_sqsz) | std::views::take(shp.m_sqsz) |

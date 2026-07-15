@@ -270,17 +270,8 @@ inline std::tuple<std::string, ShapesStorage, std::vector<Tree>> parse_inputData
     }
     for (auto &shp : tempShapes) {
         while (shp.size() < desiredSqsz) { shp.emplace_back(desiredSqsz, 0); }
-        auto oneShp_matrix = std::ranges::fold_left(shp, std::vector<unsigned char>(desiredSqsz + 2, 0),
-                                                    [](std::vector<unsigned char> &&init, auto const &shpLine) {
-                                                        init.push_back(0);
-                                                        init.append_range(shpLine);
-                                                        init.push_back(0);
-                                                        return init;
-                                                    });
-        oneShp_matrix.append_range(std::vector<unsigned char>(desiredSqsz + 2, 0));
-        shps.m_shapes.push_back({.m_sqsz = desiredSqsz + 2, .m_matrix = std::move(oneShp_matrix)});
+        shps.m_shapes.push_back(incpack::BoxPacker_2D::Shape::make(shp, 1));
     }
-
 
     return res;
 }

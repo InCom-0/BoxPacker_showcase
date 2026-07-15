@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cassert>
-#include <cmath>
 #include <cstddef>
 #include <deque>
 #include <functional>
@@ -15,8 +14,8 @@
 #include <utility>
 #include <vector>
 
-
 #include <ankerl/unordered_dense.h>
+#include <more_concepts/more_concepts.hpp>
 
 #include <incstd/core/explorers.hpp>
 #include <incstd/core/hashing.hpp>
@@ -84,6 +83,11 @@ public:
     private:
         bool _upsize(size_t const target_sqsz);
         bool _downsize(size_t const target_sqsz);
+        bool _downsize_withBorder(size_t const target_sqsz, size_t const borderThickness);
+
+        template <typename T>
+        requires more_concepts::container<T> && more_concepts::container<typename T::value_type>
+        static auto _verify_VofV_ctor(T const &VofV);
 
     public:
         size_t                     m_sqsz = 0;
@@ -91,6 +95,41 @@ public:
 
         static Shape make(size_t const sqsz) {
             return Shape{.m_sqsz = sqsz, .m_matrix = std::vector<unsigned char>(sqsz * sqsz, 0)};
+        }
+
+        template <typename T>
+        requires more_concepts::container<T> && more_concepts::container<typename T::value_type>
+        static Shape make(T const &VofV) {
+            auto const [_, maxLen] = _verify_VofV_ctor(VofV);
+            Shape res{.m_sqsz = maxLen, .m_matrix = std::vector<unsigned char>()};
+            res.m_matrix.reserve(maxLen * maxLen);
+
+            for (auto const &line : VofV) {
+                res.m_matrix.append_range(std::views::transform(
+                    line, [](auto const &oneChar) { return static_cast<unsigned char>(oneChar); }));
+                for (size_t id = line.size(); id < maxLen; ++id) { res.m_matrix.push_back(0); }
+            }
+            return res;
+        }
+
+        template <typename T>
+        requires more_concepts::container<T> && more_concepts::container<typename T::value_type>
+        static Shape make(T const &VofV, size_t const borderThickness) {
+            auto const [_, maxLen] = _verify_VofV_ctor(VofV);
+            size_t const lineLength = (maxLen + (2 * borderThickness));
+            Shape        res{.m_sqsz = lineLength, .m_matrix = std::vector<unsigned char>()};
+
+            res.m_matrix.reserve(lineLength * lineLength);
+
+            for (size_t id = 0; id < (borderThickness * lineLength); ++id) { res.m_matrix.push_back(0); }
+            for (auto const &line : VofV) {
+                for (size_t id = 0; id < borderThickness; ++id) { res.m_matrix.push_back(0); }
+                res.m_matrix.append_range(std::views::transform(
+                    line, [](auto const &oneChar) { return static_cast<unsigned char>(oneChar); }));
+                for (size_t id = line.size(); id < (maxLen + borderThickness); ++id) { res.m_matrix.push_back(0); }
+            }
+            for (size_t id = 0; id < (borderThickness * lineLength); ++id) { res.m_matrix.push_back(0); }
+            return res;
         }
 
         void reset() { std::ranges::fill(m_matrix, 0); }
@@ -249,6 +288,9 @@ public:
             return res;
         }
 
+        // Adds empty 'border' (ie. empty lines around the shape area)
+        // Performs m_sqsz += (2-borderThickness)
+        // Note: Adds border even if there already is a 'border' previously
         void add_border(size_t const borderThickness) {
             size_t const countToAdd    = (4 * borderThickness) * (m_sqsz + borderThickness);
             size_t const targetTotalSz = m_matrix.size() + countToAdd;
@@ -276,32 +318,33 @@ public:
             return false;
         }
 
-        // Always resizes
-        // Return true if it were 'forced', returns false if as if by resize_safe()
-        bool resize_force(size_t const target_sqsz) {
-            if (resize_safe(target_sqsz)) { return false; }
-
-            m_sqsz = target_sqsz;
-            return true;
-        }
 
         // Return true if resized, returns false otherwise (no change to 'this')
-        //
         bool resize_safe(size_t const target_sqsz, size_t const borderThickness) {
-            if (borderThickness > m_sqsz || borderThickness > target_sqsz) { return false; }
+            if (borderThickness > m_sqsz || borderThickness > target_sqsz || target_sqsz == m_sqsz) { return false; }
+
+            // Means 'no border' ... so same as baseline version
             else if (borderThickness == 0uz) { return resize_safe(target_sqsz); }
 
-
             // Verify that there actually is a border at this time, if not return 'false'
-            if (not verify_borderExists(borderThickness)) { return false; }
-            
-            // Actually make the border
-            {
+            // May want to 'add_border' first if returned here or the data is somehow different than expected
+            else if (not verify_borderExists(borderThickness)) { return false; }
 
-            }
+            else if (target_sqsz > m_sqsz) { return _upsize(target_sqsz); } // Can do this just fine
+            else if (target_sqsz < m_sqsz) { return _downsize_withBorder(target_sqsz, borderThickness); }
+            return false;                                                   // This is unreachable
+        }
 
+        // Always resizes
+        // Return true if it were 'forced', returns false if as if by resize_safe()
+        // UNIMPLEMENTED
+        bool resize_force(size_t const target_sqsz) {
 
-            return true;
+            // if (resize_safe(target_sqsz)) { return false; }
+
+            // m_sqsz = target_sqsz;
+            // return true;
+            return false;
         }
 
 
@@ -310,8 +353,6 @@ public:
                                sizeof(typename std::remove_cvref_t<decltype(input.m_matrix)>::value_type) *
                                    input.m_matrix.size());
         }
-
-    private:
     };
 
 
@@ -1119,6 +1160,11 @@ public:
     }
 };
 
+
+// ##################################
+// ### IMPLEMENTATIONS
+// ##################################
+
 inline bool BoxPacker_2D::Shape::_upsize(size_t const target_sqsz) {
     size_t const targetTotalSz = (target_sqsz * target_sqsz);
     while (m_matrix.size() < targetTotalSz) { m_matrix.push_back(0); }
@@ -1193,6 +1239,85 @@ inline bool BoxPacker_2D::Shape::_downsize(size_t const target_sqsz) {
 
     m_sqsz = target_sqsz;
     return true;
+}
+
+// Downsizes just the 'inner' part of the shape (that is without border)
+inline bool BoxPacker_2D::Shape::_downsize_withBorder(size_t const target_sqsz, size_t const borderThickness) {
+    size_t       rowDelta     = m_sqsz - target_sqsz;
+    size_t       colDelta     = rowDelta;
+    auto         row_startEnd = std::pair{borderThickness, m_sqsz - borderThickness};
+    auto         col_startEnd = row_startEnd;
+    size_t const tarItemCount = target_sqsz * target_sqsz;
+
+    // Rows: Can remove from the end?
+    for (long long skip =
+             (static_cast<long long>(m_matrix.size()) - static_cast<long long>((borderThickness + 1) * m_sqsz)) +
+             static_cast<long long>(borderThickness);
+         (skip > 0ll && rowDelta != 0); skip -= m_sqsz) {
+        if (std::ranges::all_of(std::views::drop(m_matrix, skip) | std::views::take(m_sqsz - (2 * borderThickness)),
+                                [](auto const chr) { return chr == 0; })) {
+            row_startEnd.second--;
+            rowDelta--;
+        }
+        else { break; } // We break only if we can't remove all we need from the end, we shall try from the beginning
+    }
+    // Rows: Can remove from the beginning?
+    for (size_t skip  = (borderThickness * m_sqsz) + borderThickness; (skip < m_matrix.size() && rowDelta != 0);
+         skip        += m_sqsz) {
+        if (std::ranges::all_of(std::views::drop(m_matrix, skip) | std::views::take(m_sqsz - (2 * borderThickness)),
+                                [](auto const chr) { return chr == 0; })) {
+            row_startEnd.first++;
+            rowDelta--;
+        }
+        else { return false; } // We cannot safely resize (downsize) because each row has some data
+    }
+
+
+    // Cols: Can remove from the end?
+    for (size_t dropAdj = 1; (dropAdj < m_sqsz && colDelta != 0); ++dropAdj) {
+        if (std::ranges::all_of(std::views::drop(m_matrix, m_sqsz - dropAdj - borderThickness) |
+                                    std::views::stride(m_sqsz),
+                                [](auto const chr) { return chr == 0; })) {
+            col_startEnd.second--;
+            colDelta--;
+        }
+        else { break; } // We break only if we can't remove all we need from the end, we shall try from the beginning
+    }
+
+    // Cols: Can remove from the beginning?
+    for (size_t dropAdj = 0; (dropAdj < m_sqsz && colDelta != 0); ++dropAdj) {
+        if (std::ranges::all_of(std::views::drop(m_matrix, dropAdj + borderThickness) | std::views::stride(m_sqsz),
+                                [](auto const chr) { return chr == 0; })) {
+            col_startEnd.first++;
+            colDelta--;
+        }
+        else { return false; }
+    }
+
+    for (size_t curRow = borderThickness; curRow < target_sqsz; ++curRow) {
+
+        std::ranges::rotate(
+            m_matrix.begin() + (curRow * target_sqsz) + borderThickness,
+            m_matrix.begin() + (((row_startEnd.first + curRow - borderThickness) * m_sqsz) + (col_startEnd.first)),
+            m_matrix.begin() + (((row_startEnd.first + curRow - borderThickness) * m_sqsz) + (col_startEnd.first)) +
+                target_sqsz);
+    }
+
+    m_matrix.resize(tarItemCount);
+
+    m_sqsz = target_sqsz;
+    return true;
+}
+
+template <typename T>
+requires more_concepts::container<T> && more_concepts::container<typename T::value_type>
+inline auto BoxPacker_2D::Shape::_verify_VofV_ctor(T const &VofV) {
+    std::pair res{true, VofV.size()};
+    for (auto const &line : VofV) {
+        if (line.size() != res.second) { res.first = false; }
+        res.second = std::max(res.second, line.size());
+    }
+    return res;
 }
 
 inline BoxPacker_2D::OverlayRes BoxPacker_2D::Shape::compute_overlayWith(Shape const &other) const {
