@@ -193,20 +193,23 @@ int main(int, char **) {
     auto [_, shps, trees] = sampleInputs.front();
 
 
+    constexpr std::array<char, 3> map{46, 35, 118};
     for (auto &shp : shps.m_shapes) {
         for (size_t lineID = 0; lineID < shp.m_sqsz; ++lineID) {
             auto vvv = std::views::drop(shp.m_matrix, lineID * shp.m_sqsz) | std::views::take(shp.m_sqsz) |
-                       std::views::transform([](auto &&chr) { return static_cast<char>(chr + 48); });
+                       std::views::transform([&](auto &&chr) { return map[chr]; });
             std::cout << std::format("{:s}\n", vvv);
         }
 
-        shp.resize_safe(9, 1);
+        std::cout << '\n';
 
-        for (size_t lineID = 0; lineID < shp.m_sqsz; ++lineID) {
-            auto vvv = std::views::drop(shp.m_matrix, lineID * shp.m_sqsz) | std::views::take(shp.m_sqsz) |
-                       std::views::transform([](auto &&chr) { return static_cast<char>(chr + 48); });
-            std::cout << std::format("{:s}\n", vvv);
-        }
+        // shp.resize_safe(9, 1);
+
+        // for (size_t lineID = 0; lineID < shp.m_sqsz; ++lineID) {
+        //     auto vvv = std::views::drop(shp.m_matrix, lineID * shp.m_sqsz) | std::views::take(shp.m_sqsz) |
+        //                std::views::transform([&](auto &&chr) { return map[chr]; });
+        //     std::cout << std::format("{:s}\n", vvv);
+        // }
         int a = 0;
     }
 
@@ -944,7 +947,7 @@ int main(int, char **) {
                         }
 
                         // ##################################
-                        // ### Sahpes used by the result
+                        // ### Shapes used by the result
                         // ##################################
 
                         for (int r = 0; r < selJobSolvRes.m_shpsAlterns.size(); ++r) {
