@@ -40,7 +40,7 @@ public:
     using pf_mdspan = Kokkos::mdspan<ElementType, Extents>;
 
     template <class... Args>
-    constexpr decltype(auto) pf_submdspan(Args &&...args) {
+    static constexpr decltype(auto) pf_submdspan(Args &&...args) {
         return Kokkos::submdspan(std::forward<Args>(args)...);
     }
 #else
@@ -51,7 +51,7 @@ public:
     using pf_mdspan = std::mdspan<ElementType, Extents>;
 
     template <class... Args>
-    constexpr decltype(auto) pf_submdspan(Args &&...args) {
+    static constexpr decltype(auto) pf_submdspan(Args &&...args) {
         return std::submdspan(std::forward<Args>(args)...);
     }
 #endif
@@ -94,12 +94,10 @@ public:
         using value_type  = unsigned char;
         using matrix_type = std::vector<value_type>;
 
-        size_t                     m_sqsz = 0;
-        std::vector<unsigned char> m_matrix;
+        size_t      m_sqsz = 0;
+        matrix_type m_matrix;
 
-        static Shape make(size_t const sqsz) {
-            return Shape{.m_sqsz = sqsz, .m_matrix = std::vector<unsigned char>(sqsz * sqsz, 0)};
-        }
+        static Shape make(size_t const sqsz) { return Shape{.m_sqsz = sqsz, .m_matrix = matrix_type(sqsz * sqsz, 0)}; }
 
         template <typename T>
         requires more_concepts::container<T> && more_concepts::container<typename T::value_type>
@@ -372,8 +370,8 @@ public:
     private:
         // bool _upsize(std::optional<size_t> const tarHeight, std::optional<size_t> const tarWidth);
         // bool _downsize(std::optional<size_t> const tarHeight, std::optional<size_t> const tarWidth);
-        bool _change_size_withoutBorder(size_t const tarHeight, size_t const tarWidth);
-        bool _change_size_withBorder(size_t const tarHeight, size_t const tarWidth, size_t const borderThickness);
+        // bool _change_size_withoutBorder(size_t const tarHeight, size_t const tarWidth);
+        bool _resize_withBorder(size_t const tarHeight, size_t const tarWidth, size_t const borderThickness);
 
         template <typename T>
         requires more_concepts::container<T> && more_concepts::container<typename T::value_type>
@@ -460,7 +458,7 @@ public:
             auto matrixView = out.get_mdspanOfSelf();
             for (size_t r = borderThickness_c; r < (H + borderThickness_c); ++r) {
                 for (size_t c = borderThickness_c; c < (H + borderThickness_c); ++c) {
-                    matrixView[r, c] = src[r][c] ? 1 : 0;
+                    matrixView[r, c] = src[r - borderThickness_c][c - borderThickness_c] ? 1 : 0;
                 }
             }
             return out;
@@ -500,7 +498,7 @@ public:
             return count;
         }
 
-        OverlayRes compute_overlayWith(Shape const &other) const;
+        OverlayRes compute_overlayWith(ShapeREC const &other) const;
 
 
         void flip_v() {
@@ -612,24 +610,24 @@ public:
         }
 
         // If something part of the border had to be changed then returns 'true', otherwise returns 'false'
-        bool change_forceBorder(size_t const borderThickness) {
+        bool change_forceBorder(size_t const borderThickness, value_type const forceBorderItemsTo = 0) {
             bool res = false;
             for (auto &oneChr : std::views::take(m_matrix, borderThickness * m_width)) {
-                res    |= (oneChr != 0);
-                oneChr  = 0;
+                res    |= (oneChr != forceBorderItemsTo);
+                oneChr  = forceBorderItemsTo;
             }
             for (auto &oneChr : std::views::drop(m_matrix, m_matrix.size() - (borderThickness * m_width))) {
-                res    |= (oneChr != 0);
-                oneChr  = 0;
+                res    |= (oneChr != forceBorderItemsTo);
+                oneChr  = forceBorderItemsTo;
             }
             for (size_t skip = 0uz; skip < borderThickness; ++skip) {
                 for (auto &oneChr : std::views::drop(m_matrix, skip) | std::views::stride(m_width)) {
-                    res    |= (oneChr != 0);
-                    oneChr  = 0;
+                    res    |= (oneChr != forceBorderItemsTo);
+                    oneChr  = forceBorderItemsTo;
                 }
                 for (auto &oneChr : std::views::drop(m_matrix, m_width - 1 - skip) | std::views::stride(m_width)) {
-                    res    |= (oneChr != 0);
-                    oneChr  = 0;
+                    res    |= (oneChr != forceBorderItemsTo);
+                    oneChr  = forceBorderItemsTo;
                 }
             }
 
@@ -637,7 +635,7 @@ public:
         }
 
         // Adds empty 'border' (ie. empty lines around the shape area)
-        // Performs m_sqsz += (2-borderThickness)
+        // Performs m_height += (2-borderThickness), m_width += (2-borderThickness)
         // Note: Adds border even if there already is a 'border' previously
         void add_border(size_t const borderThickness) {
             size_t const targetTotalSz =
@@ -662,33 +660,24 @@ public:
 
         // Return true if resized, returns false otherwise (no change to 'this')
         bool resize_safe(std::optional<size_t> const tarHeight, std::optional<size_t> const tarWidth) {
-            long long const dh_chng = tarHeight.has_value()
-                                          ? static_cast<long long>(tarHeight.value()) - static_cast<long long>(m_height)
-                                          : 0;
-            long long const dw_chng =
-                tarWidth.has_value() ? static_cast<long long>(tarWidth.value()) - static_cast<long long>(m_width) : 0;
+            size_t const th = tarHeight.value_or(m_height);
+            size_t const tw = tarHeight.value_or(m_width);
 
-            if ((dh_chng == 0) && (dw_chng == 0)) { return false; }
-
-
-            if (target_sqsz > m_sqsz) { return _upsize(target_sqsz); }
-            // The compiler will strip this 'unnecessary' condition
-            else if (target_sqsz < m_sqsz) { return _downsize(target_sqsz); }
-            return false;
+            if ((th == m_height) && (tw == m_width)) {
+                return false; // Cannot resize
+            }
+            else { return _resize_withBorder(th, tw, 0uz); }
+            std::unreachable();
         }
 
 
         // Return true if resized, returns false otherwise (no change to 'this')
         bool resize_safe(std::optional<size_t> const tarHeight, std::optional<size_t> const tarWidth,
                          size_t const borderThickness) {
-            long long const dh_chng = tarHeight.has_value()
-                                          ? static_cast<long long>(tarHeight.value()) - static_cast<long long>(m_height)
-                                          : 0;
-            long long const dw_chng =
-                tarWidth.has_value() ? static_cast<long long>(tarWidth.value()) - static_cast<long long>(m_width) : 0;
+            size_t const th = tarHeight.value_or(m_height);
+            size_t const tw = tarHeight.value_or(m_width);
 
-            if ((borderThickness > (dh_chng + m_height)) || (borderThickness > (dw_chng + m_width)) ||
-                ((dh_chng == 0) && (dw_chng == 0))) {
+            if ((borderThickness > th) || (borderThickness > tw) || ((th == m_height) && (tw == m_width))) {
                 return false; // Cannot resize
             }
 
@@ -699,7 +688,7 @@ public:
             // May want to 'add_border' first if returned here or the data is somehow different than expected
             else if (not verify_borderExists(borderThickness)) { return false; }
 
-            else { return _change_size_withBorder(m_height + dh_chng, m_width + dw_chng, borderThickness); }
+            else { return _resize_withBorder(th, tw, borderThickness); }
             std::unreachable();
         }
 
@@ -717,10 +706,21 @@ public:
 
 
         // UNIMPLEMENTED
-        std::string format_self(size_t const borderThickness = 0) {
-            constexpr std::array<char, 3> map{46, 35, 118};
-            std::string                   res;
+        std::string stringify_self(size_t const borderThickness = 0) {
+            std::string res;
+            if (((2 * borderThickness) >= m_height) || ((2 * borderThickness) >= m_width)) { return res; }
 
+            constexpr std::array<char, 3> map{46, 35, 118};
+            auto const inner = pf_submdspan(get_mdspanOfSelf(), std::pair{borderThickness, m_height - borderThickness},
+                                            std::pair{borderThickness, m_width - borderThickness});
+            res.reserve(inner.extent(0) * (inner.extent(1) + 1));
+
+            for (size_t r = 0; r < inner.extent(0); ++r) {
+                for (size_t c = 0; c < inner.extent(1); ++c) {
+                    res.push_back(map[std::min<size_t>(inner[r, c], map.size() - 1)]);
+                }
+                res.push_back('\n');
+            }
             return res;
         }
 
@@ -735,10 +735,7 @@ public:
 
 
     struct OverlayRes {
-        Shape  ol_shp;
-        size_t sqsz = 0;
-
-        // std::vector<std::vector<unsigned char>> res_matrix;
+        Shape ol_shp;
 
         size_t pointsAdded        = 0;
         size_t pointsOverlaid     = 0;
@@ -752,11 +749,34 @@ public:
         size_t shapesCount = 0;
 
         double surfacePointsCovered_relative = 0.0;
-        double surfacePointsOpened_relative  = std::numeric_limits<double>::max();
+        double surfacePointsOpened_relative  = std::numeric_limits<double>::infinity();
 
         double surfaceCovered_relative = 0.0;
-        double surfaceOpened_relative  = std::numeric_limits<double>::max();
+        double surfaceOpened_relative  = std::numeric_limits<double>::infinity();
     };
+
+    struct OverlayResREC {
+        ShapeREC ol_shp;
+
+
+        size_t pointsAdded        = 0;
+        size_t pointsOverlaid     = 0;
+        size_t bordersTouching    = 0;
+        size_t bordersNotTouching = 0;
+
+        size_t pointsTouching    = 0;
+        size_t pointsNotTouching = 0;
+
+        size_t gapsCount   = 0;
+        size_t shapesCount = 0;
+
+        double surfacePointsCovered_relative = 0.0;
+        double surfacePointsOpened_relative  = std::numeric_limits<double>::infinity();
+
+        double surfaceCovered_relative = 0.0;
+        double surfaceOpened_relative  = std::numeric_limits<double>::infinity();
+    };
+
 
     struct PastRes {
         size_t     uncoveredBySurr = 0;
@@ -1699,21 +1719,20 @@ inline auto BoxPacker_2D::Shape::_verify_VofV_ctor(T const &VofV) {
 }
 
 // UNIMPLEMENTED
-inline bool BoxPacker_2D::ShapeREC::_change_size_withoutBorder(size_t const tarHeight, size_t const tarWidth) {
+// inline bool BoxPacker_2D::ShapeREC::_change_size_withoutBorder(size_t const tarHeight, size_t const tarWidth) {
 
-    m_height = tarHeight;
-    m_width  = tarWidth;
-    return true;
-}
+//     m_height = tarHeight;
+//     m_width  = tarWidth;
+//     return true;
+// }
+
 // Downsizes just the 'inner' part of the shape (that is without border)
-inline bool BoxPacker_2D::ShapeREC::_change_size_withBorder(size_t const tarHeight, size_t const tarWidth,
-                                                            size_t const borderThickness) {
+inline bool BoxPacker_2D::ShapeREC::_resize_withBorder(size_t const tarHeight, size_t const tarWidth,
+                                                       size_t const borderThickness) {
     long long const rowDelta     = static_cast<long long>(tarHeight) - static_cast<long long>(m_height);
     long long const colDelta     = static_cast<long long>(tarWidth) - static_cast<long long>(m_width);
     auto            row_startEnd = std::pair{borderThickness, m_height - borderThickness};
     auto            col_startEnd = std::pair{borderThickness, m_width - borderThickness};
-    size_t const    tarItemCount = tarHeight * tarWidth;
-
 
     // Rows: We only do the following if we are trying to remove rows
     if (rowDelta < 0) {
@@ -1750,12 +1769,11 @@ inline bool BoxPacker_2D::ShapeREC::_change_size_withBorder(size_t const tarHeig
     if (colDelta < 0) {
         auto cd_loc = colDelta;
         // Cols: Can remove from the end?
-        for (size_t dropAdj = 1; (dropAdj < m_sqsz && cd_loc != 0); ++dropAdj) {
-            if (std::ranges::all_of(std::views::drop(m_matrix, m_sqsz - dropAdj - borderThickness) |
-                                        std::views::stride(m_sqsz),
+        for (size_t dropAdj = borderThickness + 1; (dropAdj < m_width && cd_loc != 0); ++dropAdj) {
+            if (std::ranges::all_of(std::views::drop(m_matrix, m_width - dropAdj) | std::views::stride(m_width),
                                     [](auto const chr) { return chr == 0; })) {
                 col_startEnd.second--;
-                cd_loc--;
+                cd_loc++;
             }
             else {
                 break;
@@ -1763,26 +1781,43 @@ inline bool BoxPacker_2D::ShapeREC::_change_size_withBorder(size_t const tarHeig
         }
 
         // Cols: Can remove from the beginning?
-        for (size_t dropAdj = 0; (dropAdj < m_sqsz && cd_loc != 0); ++dropAdj) {
-            if (std::ranges::all_of(std::views::drop(m_matrix, dropAdj + borderThickness) | std::views::stride(m_sqsz),
+        for (size_t dropAdj = borderThickness; (dropAdj < m_width && cd_loc != 0); ++dropAdj) {
+            if (std::ranges::all_of(std::views::drop(m_matrix, dropAdj) | std::views::stride(m_width),
                                     [](auto const chr) { return chr == 0; })) {
                 col_startEnd.first++;
-                cd_loc--;
+                cd_loc++;
             }
             else { return false; }
         }
     }
 
-    for (size_t curRow = borderThickness; curRow < target_sqsz; ++curRow) {
+    size_t const tarItemCount = tarHeight * tarWidth;
+    if (tarItemCount <= m_matrix.size()) {
+        for (size_t curRow = 0; curRow < (row_startEnd.second - row_startEnd.first); ++curRow) {
 
-        std::ranges::rotate(
-            m_matrix.begin() + (curRow * target_sqsz) + borderThickness,
-            m_matrix.begin() + (((row_startEnd.first + curRow - borderThickness) * m_sqsz) + (col_startEnd.first)),
-            m_matrix.begin() + (((row_startEnd.first + curRow - borderThickness) * m_sqsz) + (col_startEnd.first)) +
-                target_sqsz);
+            std::ranges::rotate(m_matrix.begin() + ((curRow + borderThickness) * tarWidth) + borderThickness,
+                                m_matrix.begin() + (((row_startEnd.first + curRow) * m_width) + (col_startEnd.first)),
+                                m_matrix.begin() + (((row_startEnd.first + curRow) * m_width) + (col_startEnd.second)));
+        }
+        m_matrix.resize(tarItemCount);
     }
 
-    m_matrix.resize(tarItemCount);
+    // tarItemCount > m_matrix_size =>
+    else {
+        while (m_matrix.size() < tarItemCount) { m_matrix.push_back(0); }
+
+        long long const rd_floored = std::max(0ll, rowDelta);
+        long long const cd_floored = std::max(0ll, colDelta);
+
+        for (size_t curRow = 0; curRow < (row_startEnd.second - row_startEnd.first); ++curRow) {
+            std::ranges::rotate(
+                m_matrix.rbegin() + ((curRow + borderThickness + rd_floored) * tarWidth) + borderThickness + cd_floored,
+                m_matrix.rbegin() +
+                    (tarItemCount - (((row_startEnd.second - 1 - curRow) * m_width) + (col_startEnd.second))),
+                m_matrix.rbegin() +
+                    (tarItemCount - (((row_startEnd.second - 1 - curRow) * m_width) + (col_startEnd.first))));
+        }
+    }
 
     m_height = tarHeight;
     m_width  = tarWidth;
@@ -1792,7 +1827,7 @@ inline bool BoxPacker_2D::ShapeREC::_change_size_withBorder(size_t const tarHeig
 template <typename T>
 requires more_concepts::container<T> && more_concepts::container<typename T::value_type>
 inline auto BoxPacker_2D::ShapeREC::_verify_VofV_ctor(T const &VofV) {
-    std::truple res{VofV.size(), 0};
+    std::tuple res{VofV.size(), 0};
     res.second = std::ranges::fold_left_first(std::views::transform(VofV, [](auto const &line) { return line.size(); }),
                                               [&](auto &&init, auto const &oneLen) {
                                                   if (init != res.second) { res.second = false; }
