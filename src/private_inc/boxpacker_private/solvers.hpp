@@ -370,9 +370,10 @@ public:
 
     class ShapeREC {
     private:
-        bool _upsize(std::optional<size_t> const tarHeight, std::optional<size_t> const tarWidth);
-        bool _downsize(std::optional<size_t> const tarHeight, std::optional<size_t> const tarWidth);
-        bool _downsize_withBorder(size_t const tarHeight, size_t const tarWidth, size_t const borderThickness);
+        // bool _upsize(std::optional<size_t> const tarHeight, std::optional<size_t> const tarWidth);
+        // bool _downsize(std::optional<size_t> const tarHeight, std::optional<size_t> const tarWidth);
+        bool _change_size_withoutBorder(size_t const tarHeight, size_t const tarWidth);
+        bool _change_size_withBorder(size_t const tarHeight, size_t const tarWidth, size_t const borderThickness);
 
         template <typename T>
         requires more_concepts::container<T> && more_concepts::container<typename T::value_type>
@@ -698,7 +699,7 @@ public:
             // May want to 'add_border' first if returned here or the data is somehow different than expected
             else if (not verify_borderExists(borderThickness)) { return false; }
 
-            else { return _downsize_withBorder(target_sqsz, borderThickness); } // Can do this just fine
+            else { return _change_size_withBorder(m_height + dh_chng, m_width + dw_chng, borderThickness); }
             std::unreachable();
         }
 
@@ -1697,59 +1698,79 @@ inline auto BoxPacker_2D::Shape::_verify_VofV_ctor(T const &VofV) {
     return res;
 }
 
+// UNIMPLEMENTED
+inline bool BoxPacker_2D::ShapeREC::_change_size_withoutBorder(size_t const tarHeight, size_t const tarWidth) {
 
+    m_height = tarHeight;
+    m_width  = tarWidth;
+    return true;
+}
 // Downsizes just the 'inner' part of the shape (that is without border)
-inline bool BoxPacker_2D::ShapeREC::_downsize_withBorder(size_t const tarHeight, size_t const tarWidth,
-                                                         size_t const borderThickness) {
-    size_t       rowDelta     = m_sqsz - target_sqsz;
-    size_t       colDelta     = rowDelta;
-    auto         row_startEnd = std::pair{borderThickness, m_sqsz - borderThickness};
-    auto         col_startEnd = row_startEnd;
-    size_t const tarItemCount = target_sqsz * target_sqsz;
-
-    // Rows: Can remove from the end?
-    for (long long skip =
-             (static_cast<long long>(m_matrix.size()) - static_cast<long long>((borderThickness + 1) * m_sqsz)) +
-             static_cast<long long>(borderThickness);
-         (skip > 0ll && rowDelta != 0); skip -= m_sqsz) {
-        if (std::ranges::all_of(std::views::drop(m_matrix, skip) | std::views::take(m_sqsz - (2 * borderThickness)),
-                                [](auto const chr) { return chr == 0; })) {
-            row_startEnd.second--;
-            rowDelta--;
-        }
-        else { break; } // We break only if we can't remove all we need from the end, we shall try from the beginning
-    }
-    // Rows: Can remove from the beginning?
-    for (size_t skip  = (borderThickness * m_sqsz) + borderThickness; (skip < m_matrix.size() && rowDelta != 0);
-         skip        += m_sqsz) {
-        if (std::ranges::all_of(std::views::drop(m_matrix, skip) | std::views::take(m_sqsz - (2 * borderThickness)),
-                                [](auto const chr) { return chr == 0; })) {
-            row_startEnd.first++;
-            rowDelta--;
-        }
-        else { return false; } // We cannot safely resize (downsize) because each row has some data
-    }
+inline bool BoxPacker_2D::ShapeREC::_change_size_withBorder(size_t const tarHeight, size_t const tarWidth,
+                                                            size_t const borderThickness) {
+    long long const rowDelta     = static_cast<long long>(tarHeight) - static_cast<long long>(m_height);
+    long long const colDelta     = static_cast<long long>(tarWidth) - static_cast<long long>(m_width);
+    auto            row_startEnd = std::pair{borderThickness, m_height - borderThickness};
+    auto            col_startEnd = std::pair{borderThickness, m_width - borderThickness};
+    size_t const    tarItemCount = tarHeight * tarWidth;
 
 
-    // Cols: Can remove from the end?
-    for (size_t dropAdj = 1; (dropAdj < m_sqsz && colDelta != 0); ++dropAdj) {
-        if (std::ranges::all_of(std::views::drop(m_matrix, m_sqsz - dropAdj - borderThickness) |
-                                    std::views::stride(m_sqsz),
-                                [](auto const chr) { return chr == 0; })) {
-            col_startEnd.second--;
-            colDelta--;
+    // Rows: We only do the following if we are trying to remove rows
+    if (rowDelta < 0) {
+        auto rd_loc = rowDelta;
+        // Rows: Can remove from the end?
+        for (long long skip =
+                 (static_cast<long long>(m_matrix.size()) - static_cast<long long>((borderThickness + 1) * m_width)) +
+                 static_cast<long long>(borderThickness);
+             (skip > 0ll && rd_loc != 0); skip -= m_width) {
+            if (std::ranges::all_of(std::views::drop(m_matrix, skip) |
+                                        std::views::take(m_width - (2 * borderThickness)),
+                                    [](auto const chr) { return chr == 0; })) {
+                row_startEnd.second--;
+                rd_loc++;
+            }
+            // We break only if we can't remove all we need from the end, we shall try from the beginning
+            else { break; }
         }
-        else { break; } // We break only if we can't remove all we need from the end, we shall try from the beginning
+        // Rows: Can remove from the beginning?
+        for (size_t skip  = (borderThickness * m_width) + borderThickness; (skip < m_matrix.size() && rd_loc != 0);
+             skip        += m_width) {
+            if (std::ranges::all_of(std::views::drop(m_matrix, skip) |
+                                        std::views::take(m_width - (2 * borderThickness)),
+                                    [](auto const chr) { return chr == 0; })) {
+                row_startEnd.first++;
+                rd_loc++;
+            }
+            // We cannot safely resize (downsize) because each row has some data
+            else { return false; }
+        }
     }
 
-    // Cols: Can remove from the beginning?
-    for (size_t dropAdj = 0; (dropAdj < m_sqsz && colDelta != 0); ++dropAdj) {
-        if (std::ranges::all_of(std::views::drop(m_matrix, dropAdj + borderThickness) | std::views::stride(m_sqsz),
-                                [](auto const chr) { return chr == 0; })) {
-            col_startEnd.first++;
-            colDelta--;
+    // Cols: We only do the following if we are trying to remove cols
+    if (colDelta < 0) {
+        auto cd_loc = colDelta;
+        // Cols: Can remove from the end?
+        for (size_t dropAdj = 1; (dropAdj < m_sqsz && cd_loc != 0); ++dropAdj) {
+            if (std::ranges::all_of(std::views::drop(m_matrix, m_sqsz - dropAdj - borderThickness) |
+                                        std::views::stride(m_sqsz),
+                                    [](auto const chr) { return chr == 0; })) {
+                col_startEnd.second--;
+                cd_loc--;
+            }
+            else {
+                break;
+            } // We break only if we can't remove all we need from the end, we shall try from the beginning
         }
-        else { return false; }
+
+        // Cols: Can remove from the beginning?
+        for (size_t dropAdj = 0; (dropAdj < m_sqsz && cd_loc != 0); ++dropAdj) {
+            if (std::ranges::all_of(std::views::drop(m_matrix, dropAdj + borderThickness) | std::views::stride(m_sqsz),
+                                    [](auto const chr) { return chr == 0; })) {
+                col_startEnd.first++;
+                cd_loc--;
+            }
+            else { return false; }
+        }
     }
 
     for (size_t curRow = borderThickness; curRow < target_sqsz; ++curRow) {
@@ -1763,7 +1784,8 @@ inline bool BoxPacker_2D::ShapeREC::_downsize_withBorder(size_t const tarHeight,
 
     m_matrix.resize(tarItemCount);
 
-    m_sqsz = target_sqsz;
+    m_height = tarHeight;
+    m_width  = tarWidth;
     return true;
 }
 
