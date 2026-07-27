@@ -88,7 +88,7 @@ public:
 
         template <typename T>
         requires more_concepts::container<T> && more_concepts::container<typename T::value_type>
-        static auto _verify_VofV_ctor(T const &VofV);
+        static constexpr auto _verify_VofV_ctor(T const &VofV);
 
     public:
         using value_type  = unsigned char;
@@ -195,7 +195,7 @@ public:
             return count;
         }
 
-        OverlayRes compute_overlayWith(Shape const &other) const;
+        constexpr OverlayRes compute_overlayWith(Shape const &other) const;
 
         std::vector<Shape> compute_alternsRotFlip() const {
             // namespace incmatrix = incom::standard::matrix;
@@ -367,23 +367,36 @@ public:
 
 
     class ShapeREC {
+    public:
+        using value_type  = unsigned char;
+        using matrix_type = std::vector<value_type>;
+
+        struct OverlayRes;
+
+        size_t      m_height = 0uz;
+        size_t      m_width  = 0uz;
+        matrix_type m_matrix;
+
     private:
         // bool _upsize(std::optional<size_t> const tarHeight, std::optional<size_t> const tarWidth);
         // bool _downsize(std::optional<size_t> const tarHeight, std::optional<size_t> const tarWidth);
         // bool _change_size_withoutBorder(size_t const tarHeight, size_t const tarWidth);
         bool _resize_withBorder(size_t const tarHeight, size_t const tarWidth, size_t const borderThickness);
 
+        constexpr OverlayRes _compute_overlayWith_impl(ShapeREC const &self_adj, ShapeREC const &other) const;
+
         template <typename T>
         requires more_concepts::container<T> && more_concepts::container<typename T::value_type>
-        static auto _verify_VofV_ctor(T const &VofV);
+        constexpr static auto _verify_VofV_ctor(T const &VofV);
 
     public:
-        using value_type  = unsigned char;
-        using matrix_type = std::vector<value_type>;
-
-        size_t      m_height = 0uz;
-        size_t      m_width  = 0uz;
-        matrix_type m_matrix;
+        auto operator<=>(ShapeREC const &other) const = default;
+        auto get_mdspanOfSelf() const {
+            return pf_mdspan<const unsigned char, pf_dextents<size_t, 2>>(m_matrix.data(), m_height, m_width);
+        }
+        auto get_mdspanOfSelf() {
+            return pf_mdspan<unsigned char, pf_dextents<size_t, 2>>(m_matrix.data(), m_height, m_width);
+        }
 
         static ShapeREC make(size_t const sqsz) {
             return ShapeREC{.m_height = sqsz, .m_width = sqsz, .m_matrix = matrix_type(sqsz * sqsz, 0)};
@@ -398,7 +411,7 @@ public:
         requires more_concepts::container<T> && more_concepts::container<typename T::value_type>
         static ShapeREC make(T const &VofV) {
             auto const [height, maxWidth] = _verify_VofV_ctor(VofV);
-            ShapeREC res{.m_height = height, .m_width = maxWidth, .m_matrix = matrix_type()};
+            ShapeREC res{.m_height = height, .m_width = maxWidth, .m_matrix = matrix_type{}};
             res.m_matrix.reserve(height * maxWidth);
 
             for (auto const &line : VofV) {
@@ -431,6 +444,19 @@ public:
             return res;
         }
 
+        template <typename T, size_t H, size_t W, size_t borderThickness_c = 0uz>
+        requires std::convertible_to<T, value_type>
+        static ShapeREC make(std::array<std::array<T, W>, H> const &src) {
+            auto out        = ShapeREC::make(H + (2 * borderThickness_c), W + (2 * borderThickness_c));
+            auto matrixView = out.get_mdspanOfSelf();
+            for (size_t r = borderThickness_c; r < (H + borderThickness_c); ++r) {
+                for (size_t c = borderThickness_c; c < (H + borderThickness_c); ++c) {
+                    matrixView[r, c] = src[r - borderThickness_c][c - borderThickness_c] ? 1 : 0;
+                }
+            }
+            return out;
+        }
+
         void reset() { std::ranges::fill(m_matrix, 0); }
         void reset(size_t const tarHeight, size_t const tarWidth) {
             m_height = tarHeight;
@@ -442,27 +468,7 @@ public:
         // Shape &operator=(Shape const &) = default;
         // Shape &operator=(Shape &&)      = default;
 
-        auto operator<=>(ShapeREC const &other) const = default;
 
-        auto get_mdspanOfSelf() const {
-            return pf_mdspan<const unsigned char, pf_dextents<size_t, 2>>(m_matrix.data(), m_height, m_width);
-        }
-        auto get_mdspanOfSelf() {
-            return pf_mdspan<unsigned char, pf_dextents<size_t, 2>>(m_matrix.data(), m_height, m_width);
-        }
-
-        template <typename T, size_t H, size_t W, size_t borderThickness_c = 0uz>
-        requires std::convertible_to<T, value_type>
-        static ShapeREC make_from(std::array<std::array<T, W>, H> const &src) {
-            auto out        = ShapeREC::make(H + (2 * borderThickness_c), W + (2 * borderThickness_c));
-            auto matrixView = out.get_mdspanOfSelf();
-            for (size_t r = borderThickness_c; r < (H + borderThickness_c); ++r) {
-                for (size_t c = borderThickness_c; c < (H + borderThickness_c); ++c) {
-                    matrixView[r, c] = src[r - borderThickness_c][c - borderThickness_c] ? 1 : 0;
-                }
-            }
-            return out;
-        }
         // RET: -1 => empty, 0 => partial, 1 => filled
         int is_emptyOrFilled() const {
             size_t const count = count_filled();
@@ -498,7 +504,7 @@ public:
             return count;
         }
 
-        OverlayRes compute_overlayWith(ShapeREC const &other) const;
+        constexpr OverlayRes compute_overlayWith(ShapeREC const &other) const;
 
 
         void flip_v() {
@@ -692,6 +698,12 @@ public:
             std::unreachable();
         }
 
+
+        bool resize_squareify() {
+            size_t const targetSz = std::max(m_height, m_width);
+            return resize_safe(targetSz, targetSz);
+        }
+
         // Always resizes
         // Return true if it were 'forced', returns false if as if by resize_safe()
         // UNIMPLEMENTED
@@ -736,28 +748,6 @@ public:
 
     struct OverlayRes {
         Shape ol_shp;
-
-        size_t pointsAdded        = 0;
-        size_t pointsOverlaid     = 0;
-        size_t bordersTouching    = 0;
-        size_t bordersNotTouching = 0;
-
-        size_t pointsTouching    = 0;
-        size_t pointsNotTouching = 0;
-
-        size_t gapsCount   = 0;
-        size_t shapesCount = 0;
-
-        double surfacePointsCovered_relative = 0.0;
-        double surfacePointsOpened_relative  = std::numeric_limits<double>::infinity();
-
-        double surfaceCovered_relative = 0.0;
-        double surfaceOpened_relative  = std::numeric_limits<double>::infinity();
-    };
-
-    struct OverlayResREC {
-        ShapeREC ol_shp;
-
 
         size_t pointsAdded        = 0;
         size_t pointsOverlaid     = 0;
@@ -1709,7 +1699,7 @@ inline bool BoxPacker_2D::Shape::_downsize_withBorder(size_t const target_sqsz, 
 
 template <typename T>
 requires more_concepts::container<T> && more_concepts::container<typename T::value_type>
-inline auto BoxPacker_2D::Shape::_verify_VofV_ctor(T const &VofV) {
+constexpr inline auto BoxPacker_2D::Shape::_verify_VofV_ctor(T const &VofV) {
     std::pair res{true, VofV.size()};
     for (auto const &line : VofV) {
         if (line.size() != res.second) { res.first = false; }
@@ -1826,7 +1816,7 @@ inline bool BoxPacker_2D::ShapeREC::_resize_withBorder(size_t const tarHeight, s
 
 template <typename T>
 requires more_concepts::container<T> && more_concepts::container<typename T::value_type>
-inline auto BoxPacker_2D::ShapeREC::_verify_VofV_ctor(T const &VofV) {
+constexpr inline auto BoxPacker_2D::ShapeREC::_verify_VofV_ctor(T const &VofV) {
     std::tuple res{VofV.size(), 0};
     res.second = std::ranges::fold_left_first(std::views::transform(VofV, [](auto const &line) { return line.size(); }),
                                               [&](auto &&init, auto const &oneLen) {
@@ -1838,7 +1828,30 @@ inline auto BoxPacker_2D::ShapeREC::_verify_VofV_ctor(T const &VofV) {
 }
 
 
-inline BoxPacker_2D::OverlayRes BoxPacker_2D::Shape::compute_overlayWith(Shape const &other) const {
+struct BoxPacker_2D::ShapeREC::OverlayRes {
+    BoxPacker_2D::ShapeREC ol_shp;
+
+
+    size_t pointsAdded        = 0;
+    size_t pointsOverlaid     = 0;
+    size_t bordersTouching    = 0;
+    size_t bordersNotTouching = 0;
+
+    size_t pointsTouching    = 0;
+    size_t pointsNotTouching = 0;
+
+    size_t gapsCount   = 0;
+    size_t shapesCount = 0;
+
+    double surfacePointsCovered_relative = 0.0;
+    double surfacePointsOpened_relative  = std::numeric_limits<double>::infinity();
+
+    double surfaceCovered_relative = 0.0;
+    double surfaceOpened_relative  = std::numeric_limits<double>::infinity();
+};
+
+
+inline constexpr BoxPacker_2D::OverlayRes BoxPacker_2D::Shape::compute_overlayWith(Shape const &other) const {
     assert(m_sqsz == other.m_sqsz);
     BoxPacker_2D::OverlayRes res{.ol_shp{.m_sqsz = m_sqsz, .m_matrix = std::vector<unsigned char>(m_sqsz * m_sqsz, 0)}};
 
@@ -1971,6 +1984,177 @@ inline BoxPacker_2D::OverlayRes BoxPacker_2D::Shape::compute_overlayWith(Shape c
     res.surfaceOpened_relative  = res.bordersNotTouching / denomB;
 
     return res;
+}
+
+
+inline constexpr BoxPacker_2D::ShapeREC::OverlayRes BoxPacker_2D::ShapeREC::_compute_overlayWith_impl(
+    ShapeREC const &self_adj, ShapeREC const &other) const {
+
+
+    BoxPacker_2D::ShapeREC::OverlayRes res{.ol_shp{BoxPacker_2D::ShapeREC::make(m_height, m_width)}};
+
+    auto const mv       = get_mdspanOfSelf();
+    auto const mv_other = other.get_mdspanOfSelf();
+    auto const mv_res   = res.ol_shp.get_mdspanOfSelf();
+
+    for (size_t r = 0; r < m_sqsz; ++r) {
+        for (size_t c = 0; c < m_sqsz; ++c) {
+            res.pointsOverlaid += (mv[r, c] != 0) && (mv_other[r, c] != 0);
+            res.pointsAdded    += (mv[r, c] == 0) && (mv_other[r, c] != 0);
+            mv_res[r, c]        = (mv[r, c] != 0 || mv_other[r, c] != 0) ? 1 : 0;
+        }
+    }
+
+    Shape touch    = Shape::make(m_sqsz);
+    Shape notTouch = Shape::make(m_sqsz);
+
+    auto mv_touch    = touch.get_mdspanOfSelf();
+    auto mv_notTouch = notTouch.get_mdspanOfSelf();
+
+    for (size_t r = 1; r < m_sqsz - 1; ++r) {
+        for (size_t c = 1; c < m_sqsz - 1; ++c) {
+            if (mv_other[r, c] == 0) { continue; }
+
+            res.bordersTouching += (mv[r - 1, c] != 0) && (mv_other[r - 1, c] == 0);
+            res.bordersTouching += (mv[r, c - 1] != 0) && (mv_other[r, c - 1] == 0);
+            res.bordersTouching += (mv[r, c + 1] != 0) && (mv_other[r, c + 1] == 0);
+            res.bordersTouching += (mv[r + 1, c] != 0) && (mv_other[r + 1, c] == 0);
+
+            mv_touch[r - 1, c] |= (mv[r - 1, c] != 0) && (mv_other[r - 1, c] == 0);
+            mv_touch[r, c - 1] |= (mv[r, c - 1] != 0) && (mv_other[r, c - 1] == 0);
+            mv_touch[r, c + 1] |= (mv[r, c + 1] != 0) && (mv_other[r, c + 1] == 0);
+            mv_touch[r + 1, c] |= (mv[r + 1, c] != 0) && (mv_other[r + 1, c] == 0);
+
+            res.bordersNotTouching += (mv[r - 1, c] == 0) && (mv_other[r - 1, c] == 0);
+            res.bordersNotTouching += (mv[r, c - 1] == 0) && (mv_other[r, c - 1] == 0);
+            res.bordersNotTouching += (mv[r, c + 1] == 0) && (mv_other[r, c + 1] == 0);
+            res.bordersNotTouching += (mv[r + 1, c] == 0) && (mv_other[r + 1, c] == 0);
+
+            mv_notTouch[r - 1, c] |= (mv[r - 1, c] == 0) && (mv_other[r - 1, c] == 0);
+            mv_notTouch[r, c - 1] |= (mv[r, c - 1] == 0) && (mv_other[r, c - 1] == 0);
+            mv_notTouch[r, c + 1] |= (mv[r, c + 1] == 0) && (mv_other[r, c + 1] == 0);
+            mv_notTouch[r + 1, c] |= (mv[r + 1, c] == 0) && (mv_other[r + 1, c] == 0);
+        }
+    }
+
+    BoxPacker_2D::ShapeREC gapPastMemo    = BoxPacker_2D::ShapeREC::make(m_height, m_width);
+    BoxPacker_2D::ShapeREC filledPastMemo = BoxPacker_2D::ShapeREC::make(m_height, m_width);
+    BoxPacker_2D::ShapeREC curMemo        = BoxPacker_2D::ShapeREC::make(m_height, m_width);
+
+    auto mv_gasPastMemo    = gapPastMemo.get_mdspanOfSelf();
+    auto mv_filledPastMemo = filledPastMemo.get_mdspanOfSelf();
+    auto mv_curMemo        = curMemo.get_mdspanOfSelf();
+
+    Pos curPos{.y = 0, .x = 0};
+
+    auto gapsRecLambda = [&](this auto const &self) -> bool {
+        if (mv_res[curPos.y, curPos.x] != 0) { return true; }
+        if (mv_curMemo[curPos.y, curPos.x] != 0) { return true; }
+        mv_curMemo[curPos.y, curPos.x] = 1;
+
+        if (mv_gasPastMemo[curPos.y, curPos.x] != 0) { return false; }
+        mv_gasPastMemo[curPos.y, curPos.x] = 1;
+
+        for (long long const &row : {-1LL, 1LL}) {
+            if (curPos.y + row < 0 || curPos.y + row >= static_cast<long long>(m_sqsz)) { continue; }
+            curPos.y += row;
+            if (! self()) { return false; }
+            curPos.y -= row;
+        }
+        for (long long const &col : {-1LL, 1LL}) {
+            if (curPos.x + col < 0 || curPos.x + col >= static_cast<long long>(m_sqsz)) { continue; }
+            curPos.x += col;
+            if (! self()) { return false; }
+            curPos.x -= col;
+        }
+        return true;
+    };
+
+    auto filledRecLambda = [&](this auto const &self) -> bool {
+        if (mv_res[curPos.y, curPos.x] == 0) { return true; }
+        if (mv_curMemo[curPos.y, curPos.x] != 0) { return true; }
+        mv_curMemo[curPos.y, curPos.x] = 1;
+
+        if (mv_filledPastMemo[curPos.y, curPos.x] != 0) { return false; }
+        mv_filledPastMemo[curPos.y, curPos.x] = 1;
+
+        for (long long const &row : {-1LL, 1LL}) {
+            if (curPos.y + row < 0 || curPos.y + row >= static_cast<long long>(m_sqsz)) { continue; }
+            curPos.y += row;
+            if (! self()) { return false; }
+            curPos.y -= row;
+        }
+        for (long long const &col : {-1LL, 1LL}) {
+            if (curPos.x + col < 0 || curPos.x + col >= static_cast<long long>(m_sqsz)) { continue; }
+            curPos.x += col;
+            if (! self()) { return false; }
+            curPos.x -= col;
+        }
+        return true;
+    };
+
+    for (size_t r = 0; r < m_sqsz; ++r) {
+        for (size_t c = 0; c < m_sqsz; ++c) {
+            if (mv_res[r, c] == 0 && mv_gasPastMemo[r, c] == 0) {
+                curPos.y = static_cast<long long>(r);
+                curPos.x = static_cast<long long>(c);
+                curMemo.reset();
+                res.gapsCount += gapsRecLambda();
+            }
+            if (mv_res[r, c] != 0 && mv_filledPastMemo[r, c] == 0) {
+                curPos.y = static_cast<long long>(r);
+                curPos.x = static_cast<long long>(c);
+                curMemo.reset();
+                res.shapesCount += filledRecLambda();
+            }
+        }
+    }
+
+    res.pointsTouching    = touch.count_filled();
+    res.pointsNotTouching = notTouch.count_filled();
+    double const denomP   = std::max(static_cast<double>(res.pointsTouching + res.pointsNotTouching), 1.0);
+    double const denomB   = std::max(static_cast<double>(res.bordersTouching + res.bordersNotTouching), 1.0);
+
+    res.surfacePointsCovered_relative = res.pointsTouching / denomP;
+    res.surfacePointsOpened_relative  = res.pointsNotTouching / denomP;
+
+    res.surfaceCovered_relative = res.bordersTouching / denomB;
+    res.surfaceOpened_relative  = res.bordersNotTouching / denomB;
+
+    return res;
+}
+
+
+inline constexpr BoxPacker_2D::ShapeREC::OverlayRes BoxPacker_2D::ShapeREC::compute_overlayWith(
+    ShapeREC const &other) const {
+
+    // Same case
+    if (other.m_height == m_height && other.m_width == m_width) { return _compute_overlayWith_impl(*this, other); }
+
+    // Other smaller or equal
+    else if (other.m_height <= m_height && other.m_width <= m_width) {
+        auto otherAdj = other;
+        otherAdj.resize_safe(m_height, m_width);
+        return _compute_overlayWith_impl(*this, otherAdj);
+    }
+
+    // Other bigger or equal
+    else if (other.m_height >= m_height && other.m_width >= m_width) {
+        auto selfAdj = *this;
+        selfAdj.resize_safe(other.m_height, other.m_width);
+        return _compute_overlayWith_impl(*this, other);
+    }
+
+    // Mixed case
+    else {
+        auto selfAdj = *this;
+        selfAdj.resize_safe(std::max(m_height, other.m_height), std::max(m_width, other.m_width));
+
+        auto otherAdj = other;
+        otherAdj.resize_safe(std::max(m_height, other.m_height), std::max(m_width, other.m_width));
+
+        return _compute_overlayWith_impl(selfAdj, other);
+    }
 }
 
 } // namespace packing
