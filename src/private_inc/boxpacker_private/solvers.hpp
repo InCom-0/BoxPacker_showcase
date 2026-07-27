@@ -60,11 +60,18 @@ public:
     // Forward declarations
     struct Pos;
     struct AlternID;
+
     class Shape;
-    struct OverlayRes;
+    struct OverlayRes__OLD;
     struct PastRes;
+
+    class ShapeREC;
     struct ConsideredShapeOption;
 
+private:
+    struct __OverlayRes;
+
+public:
     struct Pos {
         long long y = 0;
         long long x = 0;
@@ -78,7 +85,6 @@ public:
 
         auto operator<=>(AlternID const &) const = default;
     };
-
 
     class Shape {
     private:
@@ -195,7 +201,7 @@ public:
             return count;
         }
 
-        constexpr OverlayRes compute_overlayWith(Shape const &other) const;
+        constexpr OverlayRes__OLD compute_overlayWith(Shape const &other) const;
 
         std::vector<Shape> compute_alternsRotFlip() const {
             // namespace incmatrix = incom::standard::matrix;
@@ -371,7 +377,7 @@ public:
         using value_type  = unsigned char;
         using matrix_type = std::vector<value_type>;
 
-        struct OverlayRes;
+        using OverlayRes = __OverlayRes;
 
         size_t      m_height = 0uz;
         size_t      m_width  = 0uz;
@@ -383,7 +389,7 @@ public:
         // bool _change_size_withoutBorder(size_t const tarHeight, size_t const tarWidth);
         bool _resize_withBorder(size_t const tarHeight, size_t const tarWidth, size_t const borderThickness);
 
-        constexpr OverlayRes _compute_overlayWith_impl(ShapeREC const &self_adj, ShapeREC const &other) const;
+        static constexpr OverlayRes _compute_overlayWith_impl(ShapeREC const &self_adj, ShapeREC const &other);
 
         template <typename T>
         requires more_concepts::container<T> && more_concepts::container<typename T::value_type>
@@ -722,7 +728,7 @@ public:
             std::string res;
             if (((2 * borderThickness) >= m_height) || ((2 * borderThickness) >= m_width)) { return res; }
 
-            constexpr std::array<char, 3> map{46, 35, 118};
+            static constexpr std::array<char, 3> map{46, 35, 118};
             auto const inner = pf_submdspan(get_mdspanOfSelf(), std::pair{borderThickness, m_height - borderThickness},
                                             std::pair{borderThickness, m_width - borderThickness});
             res.reserve(inner.extent(0) * (inner.extent(1) + 1));
@@ -745,8 +751,31 @@ public:
         }
     };
 
+private:
+    struct __OverlayRes {
+        BoxPacker_2D::ShapeREC ol_shp;
 
-    struct OverlayRes {
+
+        size_t pointsAdded        = 0;
+        size_t pointsOverlaid     = 0;
+        size_t bordersTouching    = 0;
+        size_t bordersNotTouching = 0;
+
+        size_t pointsTouching    = 0;
+        size_t pointsNotTouching = 0;
+
+        size_t gapsCount   = 0;
+        size_t shapesCount = 0;
+
+        double surfacePointsCovered_relative = 0.0;
+        double surfacePointsOpened_relative  = std::numeric_limits<double>::infinity();
+
+        double surfaceCovered_relative = 0.0;
+        double surfaceOpened_relative  = std::numeric_limits<double>::infinity();
+    };
+
+public:
+    struct OverlayRes__OLD {
         Shape ol_shp;
 
         size_t pointsAdded        = 0;
@@ -769,9 +798,9 @@ public:
 
 
     struct PastRes {
-        size_t     uncoveredBySurr = 0;
-        AlternID   ol_shpID{};
-        OverlayRes ol_res{};
+        size_t               uncoveredBySurr = 0;
+        AlternID             ol_shpID{};
+        ShapeREC::OverlayRes ol_res{};
     };
 
     struct ConsideredShapeOption {
@@ -791,7 +820,7 @@ public:
     using frontierTilePossibs_t      = std::optional<std::reference_wrapper<possibilitiesByShape_t>>;
     using consideredOptionsByShape_t = std::vector<std::vector<ConsideredShapeOption>>;
     using pastResMap_t =
-        ankerl::unordered_dense::segmented_map<Shape, possibilitiesByShape_t, incom::standard::hashing::XXH3Hasher>;
+        ankerl::unordered_dense::segmented_map<ShapeREC, possibilitiesByShape_t, incom::standard::hashing::XXH3Hasher>;
 
     struct SolverPolicy {
         struct SelectionState {
@@ -894,7 +923,7 @@ public:
 
 
     BoxPacker_2D(size_t const sqsz, size_t const area_ySize, size_t const area_xSize,
-                 std::vector<std::vector<Shape>> const &shps_alterns, std::vector<size_t> const &shps_counts,
+                 std::vector<std::vector<ShapeREC>> const &shps_alterns, std::vector<size_t> const &shps_counts,
                  size_t const firstTile_yPos = 0, size_t const firstTile_xPos = 0, pastResMap_t const &pastReslts = {})
         : m_sqsz(sqsz), m_shapeOLCount_full((2 * sqsz) - 1), m_shapeOLCount_border((2 * sqsz) - 3),
           m_shapeOLCount_inside((2 * sqsz) - 5), m_useableCount_perShape(shps_counts),
@@ -961,9 +990,9 @@ private:
     size_t                     m_area_ySize;
     size_t                     m_area_xSize;
 
-    Pos                             m_firstTilePos;
-    std::vector<std::vector<Shape>> m_shapes_alterns;
-    size_t                          m_shapesMaxEmpty = 0;
+    Pos                                m_firstTilePos;
+    std::vector<std::vector<ShapeREC>> m_shapes_alterns;
+    size_t                             m_shapesMaxEmpty = 0;
 
     std::vector<size_t>                       m_useableCount_perShape;
     std::vector<double>                       m_shapesRatios_orig;
@@ -1209,7 +1238,7 @@ private:
         return std::vector<double>(ratiosHlprView.begin(), ratiosHlprView.end());
     }
 
-    possibilitiesByShape_t &getOrCompute_possibsFor(Shape const &tile) {
+    possibilitiesByShape_t &getOrCompute_possibsFor(ShapeREC const &tile) {
         auto insRes = m_pastComputed.insert({tile, possibilitiesByShape_t(m_shapes_alterns.size())});
         if (insRes.second) {
             possibilitiesByShape_t &vpr = insRes.first->second;
@@ -1443,11 +1472,11 @@ private:
         return res;
     }
 
-    std::optional<Shape> get_windowAtPos(Pos const &shapePos) const {
+    std::optional<ShapeREC> get_windowAtPos(Pos const &shapePos) const {
 
         if (shapePos.y >= 0 && shapePos.y <= static_cast<long long>(m_area_ySize - m_sqsz) && shapePos.x >= 0 &&
             shapePos.x <= static_cast<long long>(m_area_xSize - m_sqsz)) {
-            auto res      = Shape::make(m_sqsz);
+            auto res      = ShapeREC::make(m_sqsz);
             auto res_view = res.get_mdspanOfSelf();
             auto areaView = get_mdspanOfArea();
             for (long long row = shapePos.y; row < shapePos.y + static_cast<long long>(m_sqsz); ++row) {
@@ -1828,32 +1857,9 @@ constexpr inline auto BoxPacker_2D::ShapeREC::_verify_VofV_ctor(T const &VofV) {
 }
 
 
-struct BoxPacker_2D::ShapeREC::OverlayRes {
-    BoxPacker_2D::ShapeREC ol_shp;
-
-
-    size_t pointsAdded        = 0;
-    size_t pointsOverlaid     = 0;
-    size_t bordersTouching    = 0;
-    size_t bordersNotTouching = 0;
-
-    size_t pointsTouching    = 0;
-    size_t pointsNotTouching = 0;
-
-    size_t gapsCount   = 0;
-    size_t shapesCount = 0;
-
-    double surfacePointsCovered_relative = 0.0;
-    double surfacePointsOpened_relative  = std::numeric_limits<double>::infinity();
-
-    double surfaceCovered_relative = 0.0;
-    double surfaceOpened_relative  = std::numeric_limits<double>::infinity();
-};
-
-
-inline constexpr BoxPacker_2D::OverlayRes BoxPacker_2D::Shape::compute_overlayWith(Shape const &other) const {
+inline constexpr BoxPacker_2D::OverlayRes__OLD BoxPacker_2D::Shape::compute_overlayWith(Shape const &other) const {
     assert(m_sqsz == other.m_sqsz);
-    BoxPacker_2D::OverlayRes res{.ol_shp{.m_sqsz = m_sqsz, .m_matrix = std::vector<unsigned char>(m_sqsz * m_sqsz, 0)}};
+    BoxPacker_2D::OverlayRes__OLD res{.ol_shp{.m_sqsz = m_sqsz, .m_matrix = std::vector<unsigned char>(m_sqsz * m_sqsz, 0)}};
 
     auto const mv       = get_mdspanOfSelf();
     auto const mv_other = other.get_mdspanOfSelf();
@@ -1988,31 +1994,35 @@ inline constexpr BoxPacker_2D::OverlayRes BoxPacker_2D::Shape::compute_overlayWi
 
 
 inline constexpr BoxPacker_2D::ShapeREC::OverlayRes BoxPacker_2D::ShapeREC::_compute_overlayWith_impl(
-    ShapeREC const &self_adj, ShapeREC const &other) const {
+    ShapeREC const &one, ShapeREC const &other) {
 
+    BoxPacker_2D::ShapeREC::OverlayRes res{.ol_shp{BoxPacker_2D::ShapeREC::make(one.m_height, one.m_width)}};
+    size_t const                       h = one.m_height;
+    size_t const                       w = one.m_width;
 
-    BoxPacker_2D::ShapeREC::OverlayRes res{.ol_shp{BoxPacker_2D::ShapeREC::make(m_height, m_width)}};
+    if (h == 0uz or w == 0uz) { return res; } // Earlz exit
 
-    auto const mv       = get_mdspanOfSelf();
+    auto const mv       = one.get_mdspanOfSelf();
     auto const mv_other = other.get_mdspanOfSelf();
     auto const mv_res   = res.ol_shp.get_mdspanOfSelf();
 
-    for (size_t r = 0; r < m_sqsz; ++r) {
-        for (size_t c = 0; c < m_sqsz; ++c) {
+
+    for (size_t r = 0; r < h; ++r) {
+        for (size_t c = 0; c < w; ++c) {
             res.pointsOverlaid += (mv[r, c] != 0) && (mv_other[r, c] != 0);
             res.pointsAdded    += (mv[r, c] == 0) && (mv_other[r, c] != 0);
             mv_res[r, c]        = (mv[r, c] != 0 || mv_other[r, c] != 0) ? 1 : 0;
         }
     }
 
-    Shape touch    = Shape::make(m_sqsz);
-    Shape notTouch = Shape::make(m_sqsz);
+    ShapeREC touch    = ShapeREC::make(h, w);
+    ShapeREC notTouch = ShapeREC::make(h, w);
 
     auto mv_touch    = touch.get_mdspanOfSelf();
     auto mv_notTouch = notTouch.get_mdspanOfSelf();
 
-    for (size_t r = 1; r < m_sqsz - 1; ++r) {
-        for (size_t c = 1; c < m_sqsz - 1; ++c) {
+    for (size_t r = 1; r < h - 1; ++r) {
+        for (size_t c = 1; c < w - 1; ++c) {
             if (mv_other[r, c] == 0) { continue; }
 
             res.bordersTouching += (mv[r - 1, c] != 0) && (mv_other[r - 1, c] == 0);
@@ -2037,11 +2047,11 @@ inline constexpr BoxPacker_2D::ShapeREC::OverlayRes BoxPacker_2D::ShapeREC::_com
         }
     }
 
-    BoxPacker_2D::ShapeREC gapPastMemo    = BoxPacker_2D::ShapeREC::make(m_height, m_width);
-    BoxPacker_2D::ShapeREC filledPastMemo = BoxPacker_2D::ShapeREC::make(m_height, m_width);
-    BoxPacker_2D::ShapeREC curMemo        = BoxPacker_2D::ShapeREC::make(m_height, m_width);
+    ShapeREC gapPastMemo    = ShapeREC::make(h, w);
+    ShapeREC filledPastMemo = ShapeREC::make(h, w);
+    ShapeREC curMemo        = ShapeREC::make(h, w);
 
-    auto mv_gasPastMemo    = gapPastMemo.get_mdspanOfSelf();
+    auto mv_gapPastMemo    = gapPastMemo.get_mdspanOfSelf();
     auto mv_filledPastMemo = filledPastMemo.get_mdspanOfSelf();
     auto mv_curMemo        = curMemo.get_mdspanOfSelf();
 
@@ -2052,17 +2062,17 @@ inline constexpr BoxPacker_2D::ShapeREC::OverlayRes BoxPacker_2D::ShapeREC::_com
         if (mv_curMemo[curPos.y, curPos.x] != 0) { return true; }
         mv_curMemo[curPos.y, curPos.x] = 1;
 
-        if (mv_gasPastMemo[curPos.y, curPos.x] != 0) { return false; }
-        mv_gasPastMemo[curPos.y, curPos.x] = 1;
+        if (mv_gapPastMemo[curPos.y, curPos.x] != 0) { return false; }
+        mv_gapPastMemo[curPos.y, curPos.x] = 1;
 
         for (long long const &row : {-1LL, 1LL}) {
-            if (curPos.y + row < 0 || curPos.y + row >= static_cast<long long>(m_sqsz)) { continue; }
+            if (curPos.y + row < 0 || curPos.y + row >= static_cast<long long>(h)) { continue; }
             curPos.y += row;
             if (! self()) { return false; }
             curPos.y -= row;
         }
         for (long long const &col : {-1LL, 1LL}) {
-            if (curPos.x + col < 0 || curPos.x + col >= static_cast<long long>(m_sqsz)) { continue; }
+            if (curPos.x + col < 0 || curPos.x + col >= static_cast<long long>(w)) { continue; }
             curPos.x += col;
             if (! self()) { return false; }
             curPos.x -= col;
@@ -2079,13 +2089,13 @@ inline constexpr BoxPacker_2D::ShapeREC::OverlayRes BoxPacker_2D::ShapeREC::_com
         mv_filledPastMemo[curPos.y, curPos.x] = 1;
 
         for (long long const &row : {-1LL, 1LL}) {
-            if (curPos.y + row < 0 || curPos.y + row >= static_cast<long long>(m_sqsz)) { continue; }
+            if (curPos.y + row < 0 || curPos.y + row >= static_cast<long long>(h)) { continue; }
             curPos.y += row;
             if (! self()) { return false; }
             curPos.y -= row;
         }
         for (long long const &col : {-1LL, 1LL}) {
-            if (curPos.x + col < 0 || curPos.x + col >= static_cast<long long>(m_sqsz)) { continue; }
+            if (curPos.x + col < 0 || curPos.x + col >= static_cast<long long>(w)) { continue; }
             curPos.x += col;
             if (! self()) { return false; }
             curPos.x -= col;
@@ -2093,9 +2103,9 @@ inline constexpr BoxPacker_2D::ShapeREC::OverlayRes BoxPacker_2D::ShapeREC::_com
         return true;
     };
 
-    for (size_t r = 0; r < m_sqsz; ++r) {
-        for (size_t c = 0; c < m_sqsz; ++c) {
-            if (mv_res[r, c] == 0 && mv_gasPastMemo[r, c] == 0) {
+    for (size_t r = 0; r < h; ++r) {
+        for (size_t c = 0; c < w; ++c) {
+            if (mv_res[r, c] == 0 && mv_gapPastMemo[r, c] == 0) {
                 curPos.y = static_cast<long long>(r);
                 curPos.x = static_cast<long long>(c);
                 curMemo.reset();

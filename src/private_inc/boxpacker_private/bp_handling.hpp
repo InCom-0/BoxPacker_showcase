@@ -30,10 +30,11 @@ namespace incom::box_packer {
 namespace incpack = incom::standard::solvers_TEMP::packing;
 using BP_Pos      = incpack::BoxPacker_2D::Pos;
 using BP_PastRes  = incpack::BoxPacker_2D::PastRes;
+using BP_Shape    = incpack::BoxPacker_2D::ShapeREC;
 
 
 struct ShapesStorage {
-    std::vector<incpack::BoxPacker_2D::Shape> m_shapes;
+    std::vector<incpack::BoxPacker_2D::ShapeREC> m_shapes;
 
     bool swap(size_t cursorA, size_t cursorB) {
         if (m_shapes.size() < cursorA || m_shapes.size() < cursorB) { return false; }
@@ -93,7 +94,9 @@ struct SolveResStore {
 
     std::vector<Tree>                                                                              m_trees;
     std::size_t                                                                                    m_sqsz;
-    std::vector<std::vector<incpack::BoxPacker_2D::Shape>> const                                   m_shpsAlterns;
+    std::size_t                                                                                    m_height;
+    std::size_t                                                                                    m_width;
+    std::vector<std::vector<BP_Shape>> const                                                       m_shpsAlterns;
     std::vector<std::vector<std::tuple<incom::box_packer::BP_Pos, incom::box_packer::BP_PastRes>>> vecOfRes = {};
     std::vector<size_t>                                                                            endOfVisible;
 
@@ -103,11 +106,10 @@ struct SolveResStore {
 
     std::vector<ImU32> colorsToUse;
 
-    SolveResStore(std::vector<Tree> const                                      &trees,
-                  std::vector<std::vector<incpack::BoxPacker_2D::Shape>> const &shpsAlterns,
-                  std::array<incom::standard::color::inc_sRGB, 256> const      &palette =
+    SolveResStore(std::vector<Tree> const &trees, std::vector<std::vector<BP_Shape>> const &shpsAlterns,
+                  std::array<incom::standard::color::inc_sRGB, 256> const &palette =
                       incom::standard::console::color_schemes::windows_terminal::dimidium256.palette)
-        : m_trees(trees), m_sqsz(shpsAlterns.front().front().m_sqsz), m_shpsAlterns(shpsAlterns),
+        : m_trees(trees), m_sqsz(shpsAlterns.front().front().m_height), m_shpsAlterns(shpsAlterns),
           vecOfRes(trees.size()), endOfVisible(trees.size(), 0uz),
           m_curPlacedCount(trees.size(), std::vector<size_t>(m_shpsAlterns.size(), 0)),
           m_reaAreaMaps(std::from_range, std::views::transform(trees,
@@ -270,7 +272,7 @@ inline std::tuple<std::string, ShapesStorage, std::vector<Tree>> parse_inputData
     }
     for (auto &shp : tempShapes) {
         while (shp.size() < desiredSqsz) { shp.emplace_back(desiredSqsz, 0); }
-        shps.m_shapes.push_back(incpack::BoxPacker_2D::Shape::make(shp, 1));
+        shps.m_shapes.push_back(BP_Shape::make(shp, 1));
     }
 
     return res;
@@ -289,7 +291,7 @@ inline std::tuple<std::string, ShapesStorage, std::vector<Tree>> parse_externalD
 
 inline constexpr auto bp_asyncExecute =
     [](auto &sch, std::vector<incom::box_packer::Tree> const trees, auto const shpsToUse,
-       moodycamel::ReaderWriterQueue<std::tuple<size_t, incpack::BoxPacker_2D::Pos, incpack::BoxPacker_2D::PastRes>> &q)
+       moodycamel::ReaderWriterQueue<std::tuple<size_t, incpack::BoxPacker_2D::Pos, BP_PastRes>> &q)
     -> exec::basic_task<void, experimental::execution::__task::inline_task_context<void>> {
     co_await stdexec::schedule(sch);
     incpack::BoxPacker_2D solver(shpsToUse.front().front().m_sqsz, trees.front().yDim, trees.front().xDim, shpsToUse,
