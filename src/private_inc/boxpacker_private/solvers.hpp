@@ -483,6 +483,10 @@ public:
             return 0;
         }
 
+        bool has_sameSizeAs(ShapeREC const &other) {
+            return ((m_height == other.m_height) && (m_width == other.m_width));
+        }
+
         size_t count_filled() const {
             return std::ranges::count_if(m_matrix, [](auto oneCell) { return oneCell != 0; });
         }
@@ -517,7 +521,7 @@ public:
             auto mdspn = get_mdspanOfSelf();
             for (size_t rowID = 0uz; rowID < (m_height / 2); ++rowID) {
                 for (size_t colID = 0uz; colID < m_width; ++colID) {
-                    std::swap(mdspn[rowID, colID], mdspn[m_height - rowID, colID]);
+                    std::swap(mdspn[rowID, colID], mdspn[m_height - rowID - 1, colID]);
                 }
             }
         }
@@ -525,7 +529,7 @@ public:
             auto mdspn = get_mdspanOfSelf();
             for (size_t rowID = 0uz; rowID < m_height; ++rowID) {
                 for (size_t colID = 0uz; colID < (m_width / 2); ++colID) {
-                    std::swap(mdspn[rowID, colID], mdspn[rowID, m_width - colID]);
+                    std::swap(mdspn[rowID, colID], mdspn[rowID, m_width - colID - 1]);
                 }
             }
         }
@@ -925,9 +929,10 @@ public:
     BoxPacker_2D(size_t const sqsz, size_t const area_ySize, size_t const area_xSize,
                  std::vector<std::vector<ShapeREC>> const &shps_alterns, std::vector<size_t> const &shps_counts,
                  size_t const firstTile_yPos = 0, size_t const firstTile_xPos = 0, pastResMap_t const &pastReslts = {})
-        : m_sqsz(sqsz), m_shapeOLCount_full((2 * sqsz) - 1), m_shapeOLCount_border((2 * sqsz) - 3),
-          m_shapeOLCount_inside((2 * sqsz) - 5), m_useableCount_perShape(shps_counts),
-          m_area((area_ySize + 2) * (area_xSize + 2), 0), m_area_ySize(area_ySize + 2), m_area_xSize(area_xSize + 2),
+        : m_sqsz(sqsz), m_shpHeight(sqsz), m_shpWidth(sqsz), m_shapeOLCount_full((2 * sqsz) - 1),
+          m_shapeOLCount_border((2 * sqsz) - 3), m_shapeOLCount_inside((2 * sqsz) - 5),
+          m_useableCount_perShape(shps_counts), m_area((area_ySize + 2) * (area_xSize + 2), 0),
+          m_area_ySize(area_ySize + 2), m_area_xSize(area_xSize + 2),
           m_frontierTiles((area_ySize + 3 - sqsz) * (area_xSize + 3 - sqsz), frontierTilePossibs_t{}),
           m_frontier_ySz(area_ySize + 1 - m_sqsz), m_frontier_xSz(area_xSize + 1 - m_sqsz),
           m_firstTilePos(Pos{.y = static_cast<long long>(firstTile_yPos), .x = static_cast<long long>(firstTile_xPos)}),
@@ -982,6 +987,8 @@ public:
 
 private:
     size_t m_sqsz                = 0; // This is for 'Shapes' used by the BoxPacker
+    size_t m_shpHeight           = 0;
+    size_t m_shpWidth            = 0;
     size_t m_shapeOLCount_full   = 0;
     size_t m_shapeOLCount_border = 0;
     size_t m_shapeOLCount_inside = 0;
@@ -1846,12 +1853,12 @@ inline bool BoxPacker_2D::ShapeREC::_resize_withBorder(size_t const tarHeight, s
 template <typename T>
 requires more_concepts::container<T> && more_concepts::container<typename T::value_type>
 constexpr inline auto BoxPacker_2D::ShapeREC::_verify_VofV_ctor(T const &VofV) {
-    std::tuple res{VofV.size(), 0};
-    res.second = std::ranges::fold_left_first(std::views::transform(VofV, [](auto const &line) { return line.size(); }),
-                                              [&](auto &&init, auto const &oneLen) {
-                                                  if (init != res.second) { res.second = false; }
-                                                  return std::max(init, oneLen);
-                                              });
+    std::pair res{VofV.size(), 0uz};
+    res.second = std::ranges::fold_left(std::views::transform(VofV, [](auto const &line) { return line.size(); }), 0uz,
+                                        [&](auto &&init, auto const &oneLen) {
+                                            if (init != res.second) { res.second = false; }
+                                            return std::max(init, oneLen);
+                                        });
 
     return res;
 }
@@ -1859,7 +1866,8 @@ constexpr inline auto BoxPacker_2D::ShapeREC::_verify_VofV_ctor(T const &VofV) {
 
 inline constexpr BoxPacker_2D::OverlayRes__OLD BoxPacker_2D::Shape::compute_overlayWith(Shape const &other) const {
     assert(m_sqsz == other.m_sqsz);
-    BoxPacker_2D::OverlayRes__OLD res{.ol_shp{.m_sqsz = m_sqsz, .m_matrix = std::vector<unsigned char>(m_sqsz * m_sqsz, 0)}};
+    BoxPacker_2D::OverlayRes__OLD res{
+        .ol_shp{.m_sqsz = m_sqsz, .m_matrix = std::vector<unsigned char>(m_sqsz * m_sqsz, 0)}};
 
     auto const mv       = get_mdspanOfSelf();
     auto const mv_other = other.get_mdspanOfSelf();

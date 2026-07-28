@@ -42,7 +42,6 @@ struct ShapesStorage {
         return true;
     }
 
-
     bool removeErase_oneID(size_t const idToRemove) {
         if (idToRemove >= m_shapes.size()) { return false; }
         m_shapes.erase(m_shapes.begin() + static_cast<std::ptrdiff_t>(idToRemove));
@@ -164,11 +163,13 @@ struct SolveResStore {
         auto areaView                 = get_mdspan_areaTree(resID);
         auto const &[itemPos, itemPR] = vecOfRes.at(resID).at(vecOfRes_ID);
         auto const shapeView = m_shpsAlterns.at(itemPR.ol_shpID.shpID).at(itemPR.ol_shpID.alternID).get_mdspanOfSelf();
-        auto const sqsz_loc  = m_shpsAlterns.at(itemPR.ol_shpID.shpID).at(itemPR.ol_shpID.alternID).m_sqsz;
+        auto const h_loc     = m_shpsAlterns.at(itemPR.ol_shpID.shpID).at(itemPR.ol_shpID.alternID).m_height;
+        auto const w_loc     = m_shpsAlterns.at(itemPR.ol_shpID.shpID).at(itemPR.ol_shpID.alternID).m_width;
 
-        for (size_t r = itemPos.y + 1; r < itemPos.y + (sqsz_loc - 1); ++r) {
-            for (size_t c = itemPos.x + 1; c < itemPos.x + (sqsz_loc - 1); ++c) {
+        for (size_t r = itemPos.y + 1; r < itemPos.y + (h_loc - 1); ++r) {
+            for (size_t c = itemPos.x + 1; c < itemPos.x + (w_loc - 1); ++c) {
                 if (shapeView[r - (itemPos.y + 1) + 1, c - (itemPos.x + 1) + 1]) {
+                    // Because the value is a color ID starting from 1, because zero is no color
                     areaView[r, c] = itemPR.ol_shpID.shpID + 1;
                 }
             }
@@ -181,10 +182,11 @@ struct SolveResStore {
         auto areaView                 = get_mdspan_areaTree(resID);
         auto const &[itemPos, itemPR] = vecOfRes.at(resID).at(vecOfRes_ID);
         auto const shapeView = m_shpsAlterns.at(itemPR.ol_shpID.shpID).at(itemPR.ol_shpID.alternID).get_mdspanOfSelf();
-        auto const sqsz_loc  = m_shpsAlterns.at(itemPR.ol_shpID.shpID).at(itemPR.ol_shpID.alternID).m_sqsz;
+        auto const h_loc     = m_shpsAlterns.at(itemPR.ol_shpID.shpID).at(itemPR.ol_shpID.alternID).m_height;
+        auto const w_loc     = m_shpsAlterns.at(itemPR.ol_shpID.shpID).at(itemPR.ol_shpID.alternID).m_width;
 
-        for (size_t r = itemPos.y + 1; r < itemPos.y + (sqsz_loc - 1); ++r) {
-            for (size_t c = itemPos.x + 1; c < itemPos.x + (sqsz_loc - 1); ++c) {
+        for (size_t r = itemPos.y + 1; r < itemPos.y + (h_loc - 1); ++r) {
+            for (size_t c = itemPos.x + 1; c < itemPos.x + (w_loc - 1); ++c) {
                 if (shapeView[r - (itemPos.y + 1) + 1, c - (itemPos.x + 1) + 1]) { areaView[r, c] = 0; }
             }
         }
@@ -294,7 +296,7 @@ inline constexpr auto bp_asyncExecute =
        moodycamel::ReaderWriterQueue<std::tuple<size_t, incpack::BoxPacker_2D::Pos, BP_PastRes>> &q)
     -> exec::basic_task<void, experimental::execution::__task::inline_task_context<void>> {
     co_await stdexec::schedule(sch);
-    incpack::BoxPacker_2D solver(shpsToUse.front().front().m_sqsz, trees.front().yDim, trees.front().xDim, shpsToUse,
+    incpack::BoxPacker_2D solver(shpsToUse.front().front().m_height, trees.front().yDim, trees.front().xDim, shpsToUse,
                                  trees.front().reqdShapes);
 
     auto stopTokOpt = co_await stdexec::stopped_as_optional(stdexec::get_stop_token());

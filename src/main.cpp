@@ -529,8 +529,8 @@ int main(int, char **) {
                 ImGui::SeparatorText("Custom shapes, counts and sizes");
 
 
-                for (size_t first = 0uz; first < (shps.m_shapes.size() - 1); ++first) {
-                    if (shps.m_shapes.at(first).m_sqsz != shps.m_shapes.at(first + 1).m_sqsz) {
+                for (size_t sec = 1uz; sec < shps.m_shapes.size(); ++sec) {
+                    if (not shps.m_shapes.at(sec).has_sameSizeAs(shps.m_shapes.at(sec - 1))) {
                         shps.m_shapes.clear();
                         break;
                     }
@@ -563,9 +563,10 @@ int main(int, char **) {
                             ImGui::PopItemWidth();
 
                             // Shape creator begin
-                            size_t const shp_sqsz = (shps.m_shapes.at(curShpIDX).m_sqsz - 1); // Without borders
+                            size_t const shp_height = (shps.m_shapes.at(curShpIDX).m_height - 1); // Without borders
+                            size_t const shp_width  = (shps.m_shapes.at(curShpIDX).m_width - 1);  // Without borders
                             ImGui::PushID(r * rowCount + c);
-                            if (ImGui::BeginTable("OneShape_table", shp_sqsz - 1,
+                            if (ImGui::BeginTable("OneShape_table", shp_width - 1,
                                                   ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV |
                                                       ImGuiTableFlags_BordersH | ImGuiTableFlags_SizingFixedSame |
                                                       ImGuiTableFlags_NoHostExtendX | ImGuiTableFlags_NoPadOuterX |
@@ -573,17 +574,17 @@ int main(int, char **) {
                                                   ImVec2(0.0f, 0.0f))) {
 
 
-                                for (int c = 0; c < 3; ++c) {
+                                for (int c = 0; c < (shp_width - 1); ++c) {
                                     ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 26.0f);
                                 };
 
 
                                 auto spn = shps.m_shapes.at(curShpIDX).get_mdspanOfSelf();
-                                for (int tRow = 1; tRow < shp_sqsz; tRow++) {
+                                for (int tRow = 1; tRow < shp_height; tRow++) {
                                     ImGui::TableNextRow(ImGuiTableRowFlags_None, 26);
-                                    for (int tCol = 1; tCol < shp_sqsz; tCol++) {
+                                    for (int tCol = 1; tCol < shp_width; tCol++) {
 
-                                        ImGui::PushID(tRow * shp_sqsz + tCol);
+                                        ImGui::PushID(tRow * shp_width + tCol);
                                         ImGui::TableSetColumnIndex(tCol - 1);
                                         if (ImGui::Selectable("", false)) {
                                             spn[tRow, tCol] = not static_cast<bool>(spn[tRow, tCol]);
@@ -636,7 +637,12 @@ int main(int, char **) {
 
                 ImGui::PushID(0);
                 if (ImGui::Button("  ")) {
-                    shps.m_shapes.push_back(incpack::BoxPacker_2D::Shape::make(5));
+                    if (shps.m_shapes.size() != 0) {
+                        shps.m_shapes.push_back(incpack::BoxPacker_2D::ShapeREC::make(shps.m_shapes.back().m_height,
+                                                                                      shps.m_shapes.back().m_width));
+                    }
+                    else { shps.m_shapes.push_back(incpack::BoxPacker_2D::ShapeREC::make(5, 5)); }
+
                     oneTree.reqdShapes.push_back(0);
                 }
                 ImGui::PopID();
@@ -944,13 +950,15 @@ int main(int, char **) {
                         // ##################################
 
                         for (int r = 0; r < selJobSolvRes.m_shpsAlterns.size(); ++r) {
-                            size_t const shp_sqsz =
-                                (selJobSolvRes.m_shpsAlterns.at(r).at(0).m_sqsz - 1); // Without borders
+                            size_t const shp_height =
+                                (selJobSolvRes.m_shpsAlterns.at(r).at(0).m_height - 1); // Without borders
+                            size_t const shp_width =
+                                (selJobSolvRes.m_shpsAlterns.at(r).at(0).m_width - 1);  // Without borders
                             ImGui::BeginGroup();
 
                             // Shape table begin
                             ImGui::PushID(r);
-                            if (ImGui::BeginTable("OneShape_table", shp_sqsz - 1,
+                            if (ImGui::BeginTable("OneShape_table", shp_width - 1,
                                                   ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV |
                                                       ImGuiTableFlags_BordersH | ImGuiTableFlags_SizingFixedSame |
                                                       ImGuiTableFlags_NoHostExtendX | ImGuiTableFlags_NoPadOuterX |
@@ -958,16 +966,16 @@ int main(int, char **) {
                                                   ImVec2(0.0f, 0.0f))) {
 
 
-                                for (int c = 0; c < shp_sqsz - 1; ++c) {
+                                for (int c = 0; c < shp_width - 1; ++c) {
                                     ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 26.0f);
                                 };
 
                                 auto const shpView = selJobSolvRes.m_shpsAlterns.at(r).at(0).get_mdspanOfSelf();
-                                for (int tRow = 1; tRow < shp_sqsz; tRow++) {
+                                for (int tRow = 1; tRow < shp_height; tRow++) {
                                     ImGui::TableNextRow(ImGuiTableRowFlags_None, 26);
-                                    for (int tCol = 1; tCol < shp_sqsz; tCol++) {
+                                    for (int tCol = 1; tCol < shp_width; tCol++) {
 
-                                        ImGui::PushID(tRow * shp_sqsz + tCol - 1);
+                                        ImGui::PushID(tRow * shp_width + tCol - 1);
                                         ImGui::TableSetColumnIndex(tCol - 1);
 
                                         ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg,
