@@ -29,6 +29,34 @@ namespace incom::standard::solvers_TEMP {
 using namespace incom::standard;
 
 namespace packing {
+namespace detail {
+// Works for random-access + sized ranges (e.g. std::vector)
+struct __strided_view {
+    template <std::ranges::random_access_range R>
+    requires std::ranges::sized_range<R>
+    auto operator()(R &&r, std::size_t step = 1) const {
+        step                    += (step == 0uz);
+        const std::size_t count  = (std::ranges::size(r) + step - 1) / step; // ceil(n/step)
+        return std::views::iota(std::size_t{0}, count) |
+               std::views::transform([&r, step](std::size_t i) -> decltype(auto) {
+                   return r[i * step]; // keeps reference semantics
+               });
+    }
+};
+
+template <std::ranges::random_access_range R>
+requires std::ranges::sized_range<R>
+auto strided_view(R &&r, std::size_t step = 1) {
+    step                    += (step == 0uz);
+    const std::size_t count  = (std::ranges::size(r) + step - 1) / step; // ceil(n/step)
+
+    return std::views::iota(std::size_t{0}, count) | std::views::transform([&r, step](std::size_t i) -> decltype(auto) {
+               return r[i * step]; // keeps reference semantics
+           });
+}
+
+inline constexpr auto pf_views_stride = __strided_view{};
+} // namespace detail
 
 class BoxPacker_2D {
 public:
@@ -259,11 +287,11 @@ public:
                 return false;
             }
             for (size_t skip = 0uz; skip < borderThickness; ++skip) {
-                if (std::ranges::any_of(std::views::drop(m_matrix, skip) | std::views::stride(m_sqsz),
+                if (std::ranges::any_of(detail::pf_views_stride(std::views::drop(m_matrix, skip), m_sqsz),
                                         [](auto const chr) { return (chr != 0); })) {
                     return false;
                 }
-                if (std::ranges::any_of(std::views::drop(m_matrix, m_sqsz - 1 - skip) | std::views::stride(m_sqsz),
+                if (std::ranges::any_of(detail::pf_views_stride(std::views::drop(m_matrix, m_sqsz - 1 - skip), m_sqsz),
                                         [](auto const chr) { return (chr != 0); })) {
                     return false;
                 }
@@ -283,11 +311,11 @@ public:
                 oneChr  = 0;
             }
             for (size_t skip = 0uz; skip < borderThickness; ++skip) {
-                for (auto &oneChr : std::views::drop(m_matrix, skip) | std::views::stride(m_sqsz)) {
+                for (auto &oneChr : detail::pf_views_stride(std::views::drop(m_matrix, skip), m_sqsz)) {
                     res    |= (oneChr != 0);
                     oneChr  = 0;
                 }
-                for (auto &oneChr : std::views::drop(m_matrix, m_sqsz - 1 - skip) | std::views::stride(m_sqsz)) {
+                for (auto &oneChr : detail::pf_views_stride(std::views::drop(m_matrix, m_sqsz - 1 - skip), m_sqsz)) {
                     res    |= (oneChr != 0);
                     oneChr  = 0;
                 }
@@ -613,12 +641,13 @@ public:
                 return false;
             }
             for (size_t skip = 0uz; skip < borderThickness; ++skip) {
-                if (std::ranges::any_of(std::views::drop(m_matrix, skip) | std::views::stride(m_width),
+                if (std::ranges::any_of(detail::pf_views_stride(std::views::drop(m_matrix, skip), m_width),
                                         [](auto const chr) { return (chr != 0); })) {
                     return false;
                 }
-                if (std::ranges::any_of(std::views::drop(m_matrix, m_width - 1 - skip) | std::views::stride(m_width),
-                                        [](auto const chr) { return (chr != 0); })) {
+                if (std::ranges::any_of(
+                        detail::pf_views_stride(std::views::drop(m_matrix, m_width - 1 - skip), m_width),
+                        [](auto const chr) { return (chr != 0); })) {
                     return false;
                 }
             }
@@ -637,11 +666,11 @@ public:
                 oneChr  = forceBorderItemsTo;
             }
             for (size_t skip = 0uz; skip < borderThickness; ++skip) {
-                for (auto &oneChr : std::views::drop(m_matrix, skip) | std::views::stride(m_width)) {
+                for (auto &oneChr : detail::pf_views_stride(std::views::drop(m_matrix, skip), m_width)) {
                     res    |= (oneChr != forceBorderItemsTo);
                     oneChr  = forceBorderItemsTo;
                 }
-                for (auto &oneChr : std::views::drop(m_matrix, m_width - 1 - skip) | std::views::stride(m_width)) {
+                for (auto &oneChr : detail::pf_views_stride(std::views::drop(m_matrix, m_width - 1 - skip), m_width)) {
                     res    |= (oneChr != forceBorderItemsTo);
                     oneChr  = forceBorderItemsTo;
                 }
@@ -929,10 +958,9 @@ public:
     BoxPacker_2D(size_t const sqsz, size_t const area_ySize, size_t const area_xSize,
                  std::vector<std::vector<ShapeREC>> const &shps_alterns, std::vector<size_t> const &shps_counts,
                  size_t const firstTile_yPos = 0, size_t const firstTile_xPos = 0, pastResMap_t const &pastReslts = {})
-        : m_sqsz(sqsz), m_shpHeight(sqsz), m_shpWidth(sqsz), m_shapeOLCount_full((2 * sqsz) - 1),
-          m_shapeOLCount_border((2 * sqsz) - 3), m_shapeOLCount_inside((2 * sqsz) - 5),
-          m_useableCount_perShape(shps_counts), m_area((area_ySize + 2) * (area_xSize + 2), 0),
-          m_area_ySize(area_ySize + 2), m_area_xSize(area_xSize + 2),
+        : m_sqsz(sqsz), m_shapeOLCount_full((2 * sqsz) - 1), m_shapeOLCount_border((2 * sqsz) - 3),
+          m_shapeOLCount_inside((2 * sqsz) - 5), m_useableCount_perShape(shps_counts),
+          m_area((area_ySize + 2) * (area_xSize + 2), 0), m_area_ySize(area_ySize + 2), m_area_xSize(area_xSize + 2),
           m_frontierTiles((area_ySize + 3 - sqsz) * (area_xSize + 3 - sqsz), frontierTilePossibs_t{}),
           m_frontier_ySz(area_ySize + 1 - m_sqsz), m_frontier_xSz(area_xSize + 1 - m_sqsz),
           m_firstTilePos(Pos{.y = static_cast<long long>(firstTile_yPos), .x = static_cast<long long>(firstTile_xPos)}),
@@ -948,10 +976,9 @@ public:
                                auto const last  = std::ranges::end(filledCounts);
                                if (first == last) { return size_t{0}; }
 
-                               size_t minFilled = *first;
-                               ++first;
-                               return std::ranges::fold_left(std::ranges::subrange(first, last), minFilled,
-                                                             [](size_t a, size_t b) { return std::min(a, b); });
+                               return std::ranges::fold_left(
+                                   filledCounts, std::numeric_limits<size_t>::max(),
+                                   [](size_t init, size_t oneFilledCount) { return std::min(init, oneFilledCount); });
                            }()),
           m_pastComputed(pastReslts) {
         assert(m_sqsz > 2);
@@ -1167,7 +1194,7 @@ public:
     bool add_toFrontier(Pos const &onePos) {
         bool res    = true;
         auto window = get_windowAtPos(onePos);
-        if (! window.has_value() || window.value().count_filledBorderLess() > m_shapesMaxEmpty) { res = false; }
+        if (! window.has_value() || window.value().count_filledBorderLess<1uz>() > m_shapesMaxEmpty) { res = false; }
         else {
             auto &possibsForWindow = getOrCompute_possibsFor(window.value());
             if (possibsForWindow.size() > 0) {
@@ -1341,8 +1368,7 @@ private:
         auto const frontierView = get_mdspanOfFrontier();
         for (curPos.y = 0uz; curPos.y < m_frontier_ySz; ++curPos.y) {
             for (curPos.x = 0uz; curPos.x < m_frontier_xSz; ++curPos.x) {
-                auto const &frontierPos = frontierView[curPos.y, curPos.x];
-                if (frontierPos != std::nullopt) {
+                if (auto const &frontierPos = frontierView[curPos.y, curPos.x]) {
                     collect_consideredOptionsAt(toConsider, anyFilled, selectionState, curPos,
                                                 frontierPos.value().get(), perShpScoringAdj,
                                                 ConsideredShapeOption::Type::Gapless,
@@ -1633,7 +1659,7 @@ inline bool BoxPacker_2D::Shape::_downsize(size_t const target_sqsz) {
 
     // Cols: Can remove from the end?
     for (size_t dropAdj = 1; (dropAdj < m_sqsz && colDelta != 0); ++dropAdj) {
-        if (std::ranges::all_of(std::views::drop(m_matrix, m_sqsz - dropAdj) | std::views::stride(m_sqsz),
+        if (std::ranges::all_of(detail::pf_views_stride(std::views::drop(m_matrix, m_sqsz - dropAdj), m_sqsz),
                                 [](auto const chr) { return chr == 0; })) {
             col_startEnd.second--;
             colDelta--;
@@ -1643,7 +1669,7 @@ inline bool BoxPacker_2D::Shape::_downsize(size_t const target_sqsz) {
 
     // Cols: Can remove from the beginning?
     for (size_t dropAdj = 0; (dropAdj < m_sqsz && colDelta != 0); ++dropAdj) {
-        if (std::ranges::all_of(std::views::drop(m_matrix, dropAdj) | std::views::stride(m_sqsz),
+        if (std::ranges::all_of(detail::pf_views_stride(std::views::drop(m_matrix, dropAdj), m_sqsz),
                                 [](auto const chr) { return chr == 0; })) {
             col_startEnd.first++;
             colDelta--;
@@ -1699,9 +1725,9 @@ inline bool BoxPacker_2D::Shape::_downsize_withBorder(size_t const target_sqsz, 
 
     // Cols: Can remove from the end?
     for (size_t dropAdj = 1; (dropAdj < m_sqsz && colDelta != 0); ++dropAdj) {
-        if (std::ranges::all_of(std::views::drop(m_matrix, m_sqsz - dropAdj - borderThickness) |
-                                    std::views::stride(m_sqsz),
-                                [](auto const chr) { return chr == 0; })) {
+        if (std::ranges::all_of(
+                detail::pf_views_stride(std::views::drop(m_matrix, m_sqsz - dropAdj - borderThickness), m_sqsz),
+                [](auto const chr) { return chr == 0; })) {
             col_startEnd.second--;
             colDelta--;
         }
@@ -1710,7 +1736,7 @@ inline bool BoxPacker_2D::Shape::_downsize_withBorder(size_t const target_sqsz, 
 
     // Cols: Can remove from the beginning?
     for (size_t dropAdj = 0; (dropAdj < m_sqsz && colDelta != 0); ++dropAdj) {
-        if (std::ranges::all_of(std::views::drop(m_matrix, dropAdj + borderThickness) | std::views::stride(m_sqsz),
+        if (std::ranges::all_of(detail::pf_views_stride(std::views::drop(m_matrix, dropAdj + borderThickness), m_sqsz),
                                 [](auto const chr) { return chr == 0; })) {
             col_startEnd.first++;
             colDelta--;
@@ -1796,7 +1822,7 @@ inline bool BoxPacker_2D::ShapeREC::_resize_withBorder(size_t const tarHeight, s
         auto cd_loc = colDelta;
         // Cols: Can remove from the end?
         for (size_t dropAdj = borderThickness + 1; (dropAdj < m_width && cd_loc != 0); ++dropAdj) {
-            if (std::ranges::all_of(std::views::drop(m_matrix, m_width - dropAdj) | std::views::stride(m_width),
+            if (std::ranges::all_of(detail::pf_views_stride(std::views::drop(m_matrix, m_width - dropAdj), m_width),
                                     [](auto const chr) { return chr == 0; })) {
                 col_startEnd.second--;
                 cd_loc++;
@@ -1808,7 +1834,7 @@ inline bool BoxPacker_2D::ShapeREC::_resize_withBorder(size_t const tarHeight, s
 
         // Cols: Can remove from the beginning?
         for (size_t dropAdj = borderThickness; (dropAdj < m_width && cd_loc != 0); ++dropAdj) {
-            if (std::ranges::all_of(std::views::drop(m_matrix, dropAdj) | std::views::stride(m_width),
+            if (std::ranges::all_of(detail::pf_views_stride(std::views::drop(m_matrix, dropAdj), m_width),
                                     [](auto const chr) { return chr == 0; })) {
                 col_startEnd.first++;
                 cd_loc++;

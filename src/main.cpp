@@ -483,19 +483,27 @@ int main(int, char **) {
                             }
                         }
 
-                        jobs.push_back(std::make_pair(
-                            incom::standard::async::spawn_uptr(
-                                incom::box_packer::bp_asyncExecute, tPool_workSch, planTrees,
-                                std::vector(std::from_range, shpsForBoxPacker_view),
-                                incom::standard::async::Separator{},
-                                moodycamel::ReaderWriterQueue<
-                                    std::tuple<size_t, incom::box_packer::BP_Pos, incom::box_packer::BP_PastRes>>{
-                                    4096}),
-                            incom::box_packer::SolveResStore(planTrees,
-                                                             std::vector(std::from_range, shpsForBoxPacker_view))));
+                        if (std::ranges::fold_left(shpsForBoxPacker_view, 0uz,
+                                                   [](size_t init, auto const &oneShpAltern) {
+                                                       return std::max(init, oneShpAltern.size());
+                                                   }) == 0uz) {
+                            // Invalid, no shapes to place ... makes no sense to solve for that
+                        }
+                        else {
+                            jobs.push_back(std::make_pair(
+                                incom::standard::async::spawn_uptr(
+                                    incom::box_packer::bp_asyncExecute, tPool_workSch, planTrees,
+                                    std::vector(std::from_range, shpsForBoxPacker_view),
+                                    incom::standard::async::Separator{},
+                                    moodycamel::ReaderWriterQueue<
+                                        std::tuple<size_t, incom::box_packer::BP_Pos, incom::box_packer::BP_PastRes>>{
+                                        4096}),
+                                incom::box_packer::SolveResStore(planTrees,
+                                                                 std::vector(std::from_range, shpsForBoxPacker_view))));
 
-                        sel_jobID = jobs.size() - 1;
-                        sel_resID = std::nullopt;
+                            sel_jobID = jobs.size() - 1;
+                            sel_resID = std::nullopt;
+                        }
                     }
 
                     ImGui::SameLine();

@@ -280,14 +280,29 @@ inline std::tuple<std::string, ShapesStorage, std::vector<Tree>> parse_inputData
     return res;
 }
 
-inline std::tuple<std::string, ShapesStorage, std::vector<Tree>> parse_integratedData(std::string &df) {
-    auto any_ctre = ctre::search<R"(.+)">;
-    return parse_inputData(incom::aoc::parseInputUsingCTRE::processFile(df, any_ctre).front());
-}
 
 inline std::tuple<std::string, ShapesStorage, std::vector<Tree>> parse_externalData(std::string &data_asString) {
     auto untilNewLine = ctre::search<R"([^\r\n]+)">;
     return parse_inputData(incom::aoc::parseInputUsingCTRE::processOneLineRPT(data_asString, untilNewLine).front());
+}
+
+inline std::tuple<std::string, ShapesStorage, std::vector<Tree>> parse_integratedData(std::string &df) {
+    std::ifstream in(df, std::ios::binary);
+    if (! in) { throw std::runtime_error(std::format("Failed to open file: {}", df)); }
+
+    in.seekg(0, std::ios::end);
+    const std::streamsize size = in.tellg();
+    if (size < 0) { throw std::runtime_error(std::format("Failed to read file size: {}", df)); }
+
+    std::string toParse(static_cast<size_t>(size), '\0');
+    in.seekg(0, std::ios::beg);
+    if (size > 0) {
+        in.read(toParse.data(), size);
+        if (! in) { throw std::runtime_error(std::format("Failed to read file content: {}", df)); }
+    }
+
+    return parse_externalData(toParse);
+    // return parse_inputData(incom::aoc::parseInputUsingCTRE::processFile(df, any_ctre).front());
 }
 
 
