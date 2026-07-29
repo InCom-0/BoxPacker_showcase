@@ -1,0 +1,6 @@
+indent_width: 4
+use_tabs: false
+user_command_case: "infer"
+max_line_length: 120
+max_blank_lines: 2
+inline_single_keyword: false
