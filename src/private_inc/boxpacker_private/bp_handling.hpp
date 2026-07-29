@@ -93,8 +93,6 @@ struct SolveResStore {
 
     std::vector<Tree>                                                                              m_trees;
     std::size_t                                                                                    m_sqsz;
-    std::size_t                                                                                    m_height;
-    std::size_t                                                                                    m_width;
     std::vector<std::vector<BP_Shape>> const                                                       m_shpsAlterns;
     std::vector<std::vector<std::tuple<incom::box_packer::BP_Pos, incom::box_packer::BP_PastRes>>> vecOfRes = {};
     std::vector<size_t>                                                                            endOfVisible;

@@ -960,7 +960,8 @@ public:
                  size_t const firstTile_yPos = 0, size_t const firstTile_xPos = 0, pastResMap_t const &pastReslts = {})
         : m_sqsz(sqsz), m_shapeOLCount_full((2 * sqsz) - 1), m_shapeOLCount_border((2 * sqsz) - 3),
           m_shapeOLCount_inside((2 * sqsz) - 5), m_useableCount_perShape(shps_counts),
-          m_area((area_ySize + 2) * (area_xSize + 2), 0), m_area_ySize(area_ySize + 2), m_area_xSize(area_xSize + 2),
+          m_area_ySize(area_ySize + (2 * sqsz - 4)), m_area_xSize(area_xSize + (2 * sqsz - 4)),
+          m_area(m_area_ySize * m_area_xSize, 0),
           m_frontierTiles((area_ySize + 3 - sqsz) * (area_xSize + 3 - sqsz), frontierTilePossibs_t{}),
           m_frontier_ySz(area_ySize + 1 - m_sqsz), m_frontier_xSz(area_xSize + 1 - m_sqsz),
           m_firstTilePos(Pos{.y = static_cast<long long>(firstTile_yPos), .x = static_cast<long long>(firstTile_xPos)}),
@@ -1014,15 +1015,13 @@ public:
 
 private:
     size_t m_sqsz                = 0; // This is for 'Shapes' used by the BoxPacker
-    size_t m_shpHeight           = 0;
-    size_t m_shpWidth            = 0;
     size_t m_shapeOLCount_full   = 0;
     size_t m_shapeOLCount_border = 0;
     size_t m_shapeOLCount_inside = 0;
 
-    std::vector<unsigned char> m_area;
     size_t                     m_area_ySize;
     size_t                     m_area_xSize;
+    std::vector<unsigned char> m_area;
 
     Pos                                m_firstTilePos;
     std::vector<std::vector<ShapeREC>> m_shapes_alterns;
@@ -1129,21 +1128,30 @@ public:
     }
 
     void reset_area() noexcept {
-
         std::ranges::fill(m_area, 0);
         auto areaView = get_mdspanOfArea();
 
-        for (size_t rowID : {0uz, m_area_ySize - 1uz}) {
+        size_t const borderThickness = std::max(2uz, m_sqsz) - 2uz;
+
+        for (size_t rowID : std::views::iota(0uz) | std::views::take(borderThickness)) {
             for (size_t colID = 0; colID < m_area_xSize; ++colID) { areaView[rowID, colID] = 1; }
         }
-        for (size_t rowID = 1; rowID < (m_area_ySize - 1); ++rowID) {
-            for (size_t colID : {0uz, m_area_xSize - 1uz}) { areaView[rowID, colID] = 1; }
+        for (size_t rowID : std::views::iota(m_area_ySize - (m_sqsz - 2)) | std::views::take(borderThickness)) {
+            for (size_t colID = 0; colID < m_area_xSize; ++colID) { areaView[rowID, colID] = 1; }
+        }
+        for (size_t rowID = (m_sqsz - 2); rowID < (m_area_ySize - (m_sqsz - 2)); ++rowID) {
+            for (size_t colID : std::views::iota(0uz) | std::views::take(borderThickness)) {
+                areaView[rowID, colID] = 1;
+            }
+            for (size_t colID : std::views::iota(m_area_xSize - (m_sqsz - 2)) | std::views::take(borderThickness)) {
+                areaView[rowID, colID] = 1;
+            }
         }
     }
 
     void reset_area(size_t const area_ySize, size_t const area_xSize) {
-        m_area_ySize = area_ySize + 2;
-        m_area_xSize = area_xSize + 2;
+        m_area_ySize = area_ySize + (2 * m_sqsz - 4);
+        m_area_xSize = area_xSize + (2 * m_sqsz - 4);
 
         m_area.resize((m_area_ySize) * (m_area_xSize));
         reset_area();

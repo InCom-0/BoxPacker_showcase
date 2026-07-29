@@ -559,20 +559,22 @@ int main(int, char **) {
                     for (int r = 0; r < rowCount; ++r) {
                         size_t const colCount = std::min(3uz, shps.m_shapes.size() - curShpIDX);
                         for (int c = 0; c < colCount; ++c) {
+                            // Shape creator begin
+                            size_t const shp_height = (shps.m_shapes.at(curShpIDX).m_height - 1); // Without borders
+                            size_t const shp_width  = (shps.m_shapes.at(curShpIDX).m_width - 1);  // Without borders
+
                             ImGui::BeginGroup();
 
                             // Shape creator header (count of shapes DragInt)
                             int curVal = oneTree.reqdShapes.at(curShpIDX);
-                            ImGui::PushItemWidth(81.0);
+                            ImGui::PushItemWidth((std::max(shp_width, 2uz) - 1) * 27);
                             ImGui::PushID(r * 3 + c);
                             ImGui::DragInt("", &curVal, 0.1f, 0, 100, "%d");
                             oneTree.set_reqdShape(curShpIDX, curVal);
                             ImGui::PopID();
                             ImGui::PopItemWidth();
 
-                            // Shape creator begin
-                            size_t const shp_height = (shps.m_shapes.at(curShpIDX).m_height - 1); // Without borders
-                            size_t const shp_width  = (shps.m_shapes.at(curShpIDX).m_width - 1);  // Without borders
+
                             ImGui::PushID(r * rowCount + c);
                             if (ImGui::BeginTable("OneShape_table", shp_width - 1,
                                                   ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV |
@@ -1006,8 +1008,7 @@ int main(int, char **) {
                             int curVal = 0;
 
                             ImGui::PushStyleColor(ImGuiCol_PlotHistogram, selJobSolvRes.colorsToUse.at(r + 1));
-                            ImGui::Text("Requested: %llu",
-                                        selJobSolvRes.m_trees.at(sel_resID.value()).reqdShapes.at(r));
+                            ImGui::Text("Requested: %zu", selJobSolvRes.m_trees.at(sel_resID.value()).reqdShapes.at(r));
                             ImGui::Text("Shape alterns: %zu", selJobSolvRes.m_shpsAlterns.at(r).size());
                             ImGui::Dummy(ImGui::GetItemRectSize());
 
