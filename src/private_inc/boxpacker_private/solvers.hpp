@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <deque>
 #include <functional>
+#include <iostream>
 #include <limits>
 #include <mdspan>
 #include <optional>
@@ -1222,12 +1223,18 @@ public:
     size_t add_toFrontier_allCorners() {
         size_t resCount = 0;
         if (m_area_ySize >= m_sqsz && m_area_xSize >= m_sqsz) {
-            for (auto const [r, c] :
-                 std::array<std::array<size_t, 2>, 4>{{{0, 0},
-                                                       {0, m_area_xSize - m_sqsz},
-                                                       {m_area_ySize - m_sqsz, 0},
-                                                       {m_area_ySize - m_sqsz, m_area_xSize - m_sqsz}}}) {
-                resCount += add_toFrontier(Pos{static_cast<long long>(r), static_cast<long long>(c)});
+            for (auto const [rStart, cStart] : std::array<std::array<size_t, 2>, 4>{
+                     {{0, 0},
+                      {0, m_area_xSize + 3 - m_sqsz - m_sqsz},
+                      {m_area_ySize + 3 - m_sqsz - m_sqsz, 0},
+                      {m_area_ySize + 3 - m_sqsz - m_sqsz, m_area_xSize + 3 - m_sqsz - m_sqsz}}}) {
+
+                for (auto const rAdj : std::views::iota(0) | std::views::take(m_sqsz - 2)) {
+                    for (auto const cAdj : std::views::iota(0) | std::views::take(m_sqsz - 2)) {
+                        resCount += add_toFrontier(
+                            Pos{static_cast<long long>(rStart + rAdj), static_cast<long long>(cStart + cAdj)});
+                    }
+                }
             }
         }
 
@@ -1306,6 +1313,7 @@ private:
 
         auto const perShpScoringAdj = compute_perShapeScoringAdjustments();
 
+        // std::cout << get_areaState() << '\n' << '\n';
         auto areaView = get_mdspanOfArea();
 
         while (! m_uncoverableFrontierPoss.empty()) {

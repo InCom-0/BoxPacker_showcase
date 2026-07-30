@@ -109,11 +109,13 @@ struct SolveResStore {
         : m_trees(trees), m_sqsz(shpsAlterns.front().front().m_height), m_shpsAlterns(shpsAlterns),
           vecOfRes(trees.size()), endOfVisible(trees.size(), 0uz),
           m_curPlacedCount(trees.size(), std::vector<size_t>(m_shpsAlterns.size(), 0)),
-          m_reaAreaMaps(std::from_range, std::views::transform(trees,
-                                                               [](auto const &item) {
-                                                                   return std::vector<std::uint8_t>(
-                                                                       (item.yDim + 2) * (item.xDim + 2), 0);
-                                                               })),
+          m_reaAreaMaps(std::from_range,
+                        std::views::transform(trees,
+                                              [this](auto const &item) {
+                                                  return std::vector<std::uint8_t>((item.yDim + (2 * m_sqsz - 4)) *
+                                                                                       (item.xDim + (2 * m_sqsz - 4)),
+                                                                                   0);
+                                              })),
           colorsToUse(std::from_range, std::views::transform(palette, [](auto const &oneCol) {
                           return ImU32(ImColor(oneCol.r, oneCol.g, oneCol.b));
                       })) {
@@ -131,28 +133,47 @@ struct SolveResStore {
 
     auto get_mdspan_areaTree(size_t const id) {
         return incpack::BoxPacker_2D::pf_mdspan<std::uint8_t, incpack::BoxPacker_2D::pf_dextents<size_t, 2>>(
-            m_reaAreaMaps.at(id).data(), m_trees.at(id).yDim + 2, m_trees.at(id).xDim + 2);
+            m_reaAreaMaps.at(id).data(), m_trees.at(id).yDim + (2 * m_sqsz - 4),
+            m_trees.at(id).xDim + (2 * m_sqsz - 4));
     }
     auto get_mdspan_areaTree(size_t const id) const {
         return incpack::BoxPacker_2D::pf_mdspan<const std::uint8_t, incpack::BoxPacker_2D::pf_dextents<size_t, 2>>(
-            m_reaAreaMaps.at(id).data(), m_trees.at(id).yDim + 2, m_trees.at(id).xDim + 2);
+            m_reaAreaMaps.at(id).data(), m_trees.at(id).yDim + (2 * m_sqsz - 4),
+            m_trees.at(id).xDim + (2 * m_sqsz - 4));
+    }
+
+    auto get_mdspan_areaTree_borderless(this auto &self, size_t const id) {
+        using Self = std::remove_reference_t<decltype(self)>;
+        using Elem = std::conditional_t<std::is_const_v<Self>, const std::uint8_t, std::uint8_t>;
+
+        auto whole = incpack::BoxPacker_2D::pf_mdspan<Elem, incpack::BoxPacker_2D::pf_dextents<size_t, 2>>(
+            self.m_reaAreaMaps.at(id).data(), self.m_trees.at(id).yDim + (2 * self.m_sqsz - 4),
+            self.m_trees.at(id).xDim + (2 * self.m_sqsz - 4));
+
+        auto rrr = incpack::BoxPacker_2D::pf_submdspan(
+            whole, std::pair{self.m_sqsz - 2, self.m_trees.at(id).yDim + (2 * self.m_sqsz - 4) - (self.m_sqsz - 2)},
+            std::pair{self.m_sqsz - 2, self.m_trees.at(id).xDim + (2 * self.m_sqsz - 4) - (self.m_sqsz - 2)});
+        return rrr;
     }
 
     auto get_mdspans_areasTrees() {
         return std::vector(
-            std::from_range, std::views::transform(std::views::zip(m_reaAreaMaps, m_trees), [](auto const &onePair) {
+            std::from_range,
+            std::views::transform(std::views::zip(m_reaAreaMaps, m_trees), [this](auto const &onePair) {
                 return incpack::BoxPacker_2D::pf_mdspan<std::uint8_t, incpack::BoxPacker_2D::pf_dextents<size_t, 2>>(
-                    std::get<0>(onePair).data(), std::get<1>(onePair).yDim + 2, std::get<1>(onePair).xDim + 2);
+                    std::get<0>(onePair).data(), std::get<1>(onePair).yDim + (2 * m_sqsz - 4),
+                    std::get<1>(onePair).xDim + (2 * m_sqsz - 4));
             }));
     }
 
     auto get_mdspans_areasTrees() const {
-        return std::vector(
-            std::from_range, std::views::transform(std::views::zip(m_reaAreaMaps, m_trees), [](auto const &onePair) {
-                return incpack::BoxPacker_2D::pf_mdspan<const std::uint8_t,
-                                                        incpack::BoxPacker_2D::pf_dextents<size_t, 2>>(
-                    std::get<0>(onePair).data(), std::get<1>(onePair).yDim + 2, std::get<1>(onePair).xDim + 2);
-            }));
+        return std::vector(std::from_range,
+                           std::views::transform(std::views::zip(m_reaAreaMaps, m_trees), [this](auto const &onePair) {
+                               return incpack::BoxPacker_2D::pf_mdspan<const std::uint8_t,
+                                                                       incpack::BoxPacker_2D::pf_dextents<size_t, 2>>(
+                                   std::get<0>(onePair).data(), std::get<1>(onePair).yDim + 2,
+                                   std::get<1>(onePair).xDim + 2);
+                           }));
     }
 
 

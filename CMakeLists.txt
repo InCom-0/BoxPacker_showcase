@@ -123,6 +123,7 @@ if(EMSCRIPTEN)
             "SHELL:-sEXPORTED_RUNTIME_METHODS=[]"
             "SHELL:--shell-file ${boxpacker_showcase_EMSCRIPTEN_SHELL_FILE}"
             "SHELL:--preload-file ${boxpacker_showcase_EMSCRIPTEN_SAMPLE_INPUT}@/data/BoxPacker_sample_input.txt"
+            "SHELL:--preload-file ${boxpacker_showcase_EMSCRIPTEN_SAMPLE_INPUT}@/data/BoxPacker_sample_BIG5.txt"
             "-sALLOW_MEMORY_GROWTH=1"
             "$<$<CONFIG:Debug>:-sASSERTIONS=2>"
     )

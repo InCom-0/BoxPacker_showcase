@@ -52,9 +52,11 @@
 
 
 #ifdef __EMSCRIPTEN__
-#define BOXPACKER_SAMPLE_INPUT "/data/BoxPacker_sample_input.txt"
+#define BOXPACKER_SAMPLE_INPUT   "/data/BoxPacker_sample_input.txt"
+#define BOXPACKER_SAMPLE_INPUT_5 "/data/BoxPacker_sample_BIG5.txt"
 #else
-#define BOXPACKER_SAMPLE_INPUT "../../../data/BoxPacker_sample_input.txt"
+#define BOXPACKER_SAMPLE_INPUT   "../../../data/BoxPacker_sample_input.txt"
+#define BOXPACKER_SAMPLE_INPUT_5 "../../../data/BoxPacker_sample_BIG5.txt"
 #endif
 
 struct UploadedFile {
@@ -186,9 +188,10 @@ int main(int, char **) {
     namespace incpack = incom::standard::solvers_TEMP::packing;
     using namespace std::chrono_literals;
     std::string df{BOXPACKER_SAMPLE_INPUT};
+    std::string df_5{BOXPACKER_SAMPLE_INPUT_5};
 
     std::vector<std::tuple<std::string, incom::box_packer::ShapesStorage, std::vector<incom::box_packer::Tree>>>
-        sampleInputs{incom::box_packer::parse_integratedData(df)};
+        sampleInputs{incom::box_packer::parse_integratedData(df), incom::box_packer::parse_integratedData(df_5)};
 
     auto [_, shps, trees] = sampleInputs.front();
 
@@ -880,13 +883,12 @@ int main(int, char **) {
                             };
 
                             // Draw each square (ie. set the right background color)
-                            auto const areaView = selJobSolvRes.get_mdspan_areaTree(sel_resID.value());
-                            for (int tRow = 1; tRow < selJobSolvRes.m_trees.at(sel_resID.value()).yDim + 1; tRow++) {
+                            auto const areaView = selJobSolvRes.get_mdspan_areaTree_borderless(sel_resID.value());
+                            for (int tRow = 0; tRow < selJobSolvRes.m_trees.at(sel_resID.value()).yDim; tRow++) {
                                 ImGui::TableNextRow(ImGuiTableRowFlags_None, cellSize);
-                                for (int tCol = 1; tCol < selJobSolvRes.m_trees.at(sel_resID.value()).xDim + 1;
-                                     tCol++) {
+                                for (int tCol = 0; tCol < selJobSolvRes.m_trees.at(sel_resID.value()).xDim; tCol++) {
 
-                                    ImGui::TableSetColumnIndex(tCol - 1);
+                                    ImGui::TableSetColumnIndex(tCol);
 
                                     ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg,
                                                            selJobSolvRes.colorsToUse.at(areaView[tRow, tCol]));
