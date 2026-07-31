@@ -909,8 +909,8 @@ public:
         auto const surrPoss = get_surrOverlappingPoss_forWindowsAt(std::get<0>(res), m_shapeOLCount_border);
         erase_fromFrontier(surrPoss);
         set_windowAtPos(selCSO.p, selCSO.pr_option);
-        m_placedShapes++;
         add_toFrontier(surrPoss);
+        m_placedShapes++;
 
         m_useableCount_perShape[std::get<1>(res).ol_shpID.shpID]--;
 
@@ -1331,41 +1331,56 @@ private:
     std::optional<std::vector<std::vector<ConsideredShapeOption>>> findNextStep_covering() {
         if (m_uncoverableFrontierPoss.empty()) { return std::nullopt; }
 
-        std::vector<unsigned char> tracker(m_frontier_ySz * m_frontier_xSz, 0);
-        pf_mdspan                  mdsp(tracker.data(), pf_dextents<size_t, 2>{m_area_ySize, m_frontier_xSz});
+        std::vector<unsigned char>                       tracker(m_frontier_ySz * m_frontier_xSz, 0);
+        pf_mdspan<unsigned char, pf_dextents<size_t, 2>> mdsp(tracker.data(), m_frontier_ySz, m_frontier_xSz);
 
         auto const perShpScoringAdj = compute_perShapeScoringAdjustments();
 
         // std::cout << get_areaState() << '\n' << '\n';
-        auto areaView = get_mdspanOfArea();
+        auto areaView     = get_mdspanOfArea();
+        auto frontierView = get_mdspanOfFrontier();
 
         while (! m_uncoverableFrontierPoss.empty()) {
-            if (areaView[m_uncoverableFrontierPoss.front().y, m_uncoverableFrontierPoss.front().x] != 0) {
+            Pos const seed = m_uncoverableFrontierPoss.front();
+
+            if (seed.y < 0 || seed.x < 0 || seed.y >= static_cast<long long>(m_area_ySize) ||
+                seed.x >= static_cast<long long>(m_area_xSize)) {
+                m_uncoverableFrontierPoss.pop_front();
+                continue;
+            }
+
+            if (areaView[static_cast<size_t>(seed.y), static_cast<size_t>(seed.x)] != 0) {
                 m_uncoverableFrontierPoss.pop_front();
                 continue;
             }
 
             auto explr =
                 explorers::Chebyshev([&](std::array<size_t, 2> const &item) { return areaView[item[0], item[1]] == 0; },
-                                     std::array{static_cast<size_t>(m_uncoverableFrontierPoss.front().y),
-                                                static_cast<size_t>(m_uncoverableFrontierPoss.front().x)},
-                                     std::array{m_frontier_ySz, m_frontier_xSz});
+                                     std::array{static_cast<size_t>(seed.y), static_cast<size_t>(seed.x)},
+                                     std::array{m_area_ySize, m_area_xSize});
 
             auto eva = [&](std::vector<Pos> const &poss) -> std::optional<consideredOptionsByShape_t> {
                 consideredOptionsByShape_t            toConsider(m_shapes_alterns.size());
                 bool                                  anyFilled = false;
                 typename SolverPolicy::SelectionState selectionState{};
 
-                auto frontierView = get_mdspanOfFrontier();
                 for (auto const &onePos : poss) {
                     for (auto const &prPos : get_surrOverlappingPoss<false>(onePos)) {
-                        if (mdsp[prPos.y, prPos.x] != 0) { continue; }
-                        mdsp[prPos.y, prPos.x] = 1;
+                        if (prPos.y < 0 || prPos.x < 0 || prPos.y >= static_cast<long long>(m_frontier_ySz) ||
+                            prPos.x >= static_cast<long long>(m_frontier_xSz)) {
+                            continue;
+                        }
 
-                        if (! frontierView[prPos.y, prPos.x].has_value()) { continue; }
+                        size_t const py = static_cast<size_t>(prPos.y);
+                        size_t const px = static_cast<size_t>(prPos.x);
+
+                        if (mdsp[py, px] != 0) { continue; }
+                        mdsp[py, px] = 1;
+
+                        if (! frontierView[py, px].has_value()) { continue; }
 
                         collect_consideredOptionsAt(toConsider, anyFilled, selectionState, prPos,
-                                                    frontierView[prPos.y, prPos.x].value().get(), perShpScoringAdj,
+                                                    frontierView[py, px].value().get(), perShpScoringAdj,
                                                     ConsideredShapeOption::Type::Gapcreating,
                                                     [](auto const &item) { return item.ol_res.gapsCount > 1; });
                     }
@@ -2138,16 +2153,15 @@ inline constexpr BoxPacker_2D::ShapeREC::OverlayRes BoxPacker_2D::ShapeREC::_com
         if (mv_gapPastMemo[curPos.y, curPos.x] != 0) { return false; }
         mv_gapPastMemo[curPos.y, curPos.x] = 1;
 
-        for (long long const &row : {-1LL, 1LL}) {
-            if (curPos.y + row < 0 || curPos.y + row >= static_cast<long long>(h)) { continue; }
+        for (auto const &[row, col] : detail::get_dirChanges_2D()) {
+            if (curPos.y + row < 0 || curPos.y + row >= static_cast<long long>(h) || curPos.x + col < 0 ||
+                curPos.x + col >= static_cast<long long>(w)) {
+                continue;
+            }
             curPos.y += row;
-            if (! self()) { return false; }
-            curPos.y -= row;
-        }
-        for (long long const &col : {-1LL, 1LL}) {
-            if (curPos.x + col < 0 || curPos.x + col >= static_cast<long long>(w)) { continue; }
             curPos.x += col;
             if (! self()) { return false; }
+            curPos.y -= row;
             curPos.x -= col;
         }
         return true;
@@ -2161,7 +2175,7 @@ inline constexpr BoxPacker_2D::ShapeREC::OverlayRes BoxPacker_2D::ShapeREC::_com
         if (mv_filledPastMemo[curPos.y, curPos.x] != 0) { return false; }
         mv_filledPastMemo[curPos.y, curPos.x] = 1;
 
-        for (auto const [row, col] : detail::get_dirChanges_2D()) {
+        for (auto const &[row, col] : detail::get_dirChanges_2D()) {
             if (curPos.y + row < 0 || curPos.y + row >= static_cast<long long>(h) || curPos.x + col < 0 ||
                 curPos.x + col >= static_cast<long long>(w)) {
                 continue;
