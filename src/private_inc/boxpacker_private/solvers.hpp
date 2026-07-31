@@ -6,7 +6,6 @@
 #include <cstddef>
 #include <deque>
 #include <functional>
-#include <iostream>
 #include <limits>
 #include <mdspan>
 #include <optional>
@@ -45,18 +44,34 @@ struct __strided_view {
     }
 };
 
-template <std::ranges::random_access_range R>
-requires std::ranges::sized_range<R>
-auto strided_view(R &&r, std::size_t step = 1) {
-    step                    += (step == 0uz);
-    const std::size_t count  = (std::ranges::size(r) + step - 1) / step; // ceil(n/step)
+inline constexpr auto pf_views_stride = __strided_view{};
 
-    return std::views::iota(std::size_t{0}, count) | std::views::transform([&r, step](std::size_t i) -> decltype(auto) {
-               return r[i * step]; // keeps reference semantics
-           });
+template <size_t Dims, typename INT = long long, INT Chng = 1LL>
+requires(std::is_signed<INT>::value) && (Dims > 1uz)
+inline consteval auto get_dirChanges() {
+    constexpr size_t posCount = []<size_t... Is>(std::index_sequence<Is...>) {
+        return (0uz + ... + (static_cast<void>(Is), 2uz));
+    }(std::make_index_sequence<Dims>{});
+
+    std::array<std::array<INT, Dims>, posCount> res{};
+    for (size_t oneDir = 0uz; oneDir < Dims; ++oneDir) {
+        res[oneDir * 2][oneDir]       = Chng;
+        res[(oneDir * 2) + 1][oneDir] = (-1 * Chng);
+    }
+    return res;
 }
 
-inline constexpr auto pf_views_stride = __strided_view{};
+template <typename INT = long long, INT Chng = 1LL>
+requires(std::is_signed<INT>::value)
+inline consteval auto get_dirChanges_2D() {
+    return get_dirChanges<2uz, INT, Chng>();
+}
+template <typename INT = long long, INT Chng = 1LL>
+requires(std::is_signed<INT>::value)
+inline consteval auto get_dirChanges_3D() {
+    return get_dirChanges<3uz, INT, Chng>();
+}
+
 } // namespace detail
 
 class BoxPacker_2D {
@@ -880,6 +895,7 @@ public:
     };
 
     std::optional<std::tuple<Pos, PastRes>> solve_oneStep() {
+        // TODO: Need to create findNextStep_onePossibility
         auto selOpt = findNextStep_covering()
                           .or_else([this]() { return findNextStep_regular(); })
                           .or_else([this]() { return findNextStep_withGap(); })
@@ -893,6 +909,7 @@ public:
         auto const surrPoss = get_surrOverlappingPoss_forWindowsAt(std::get<0>(res), m_shapeOLCount_border);
         erase_fromFrontier(surrPoss);
         set_windowAtPos(selCSO.p, selCSO.pr_option);
+        m_placedShapes++;
         add_toFrontier(surrPoss);
 
         m_useableCount_perShape[std::get<1>(res).ol_shpID.shpID]--;
@@ -1023,6 +1040,7 @@ private:
     size_t                     m_area_ySize;
     size_t                     m_area_xSize;
     std::vector<unsigned char> m_area;
+    size_t                     m_placedShapes = 0uz;
 
     Pos                                m_firstTilePos;
     std::vector<std::vector<ShapeREC>> m_shapes_alterns;
@@ -1107,6 +1125,7 @@ public:
     }
 
     void reset_allButNotPastComputed(std::vector<size_t> const &shps_counts) {
+        reset_placedCounter();
         reset_area();
         reset_frontier();
         reset_useableShapeCounts(shps_counts);
@@ -1114,6 +1133,7 @@ public:
     }
 
     void reset_allButNotPastComputed(size_t area_ySize, size_t area_xSize, std::vector<size_t> const &shps_counts) {
+        reset_placedCounter();
         reset_area(area_ySize, area_xSize);
         reset_frontier();
         reset_useableShapeCounts(shps_counts);
@@ -1122,11 +1142,14 @@ public:
 
     void reset_allButNotPastComputed(size_t area_ySize, size_t area_xSize, std::vector<size_t> const &shps_counts,
                                      Pos const &p) {
+        reset_placedCounter();
         reset_area(area_ySize, area_xSize);
         reset_frontier(p);
         reset_useableShapeCounts(shps_counts);
         prime_fprng();
     }
+
+    void reset_placedCounter() noexcept { m_placedShapes = 0uz; }
 
     void reset_area() noexcept {
         std::ranges::fill(m_area, 0);
@@ -2050,7 +2073,7 @@ inline constexpr BoxPacker_2D::ShapeREC::OverlayRes BoxPacker_2D::ShapeREC::_com
     size_t const                       h = one.m_height;
     size_t const                       w = one.m_width;
 
-    if (h == 0uz or w == 0uz) { return res; } // Earlz exit
+    if (h == 0uz or w == 0uz) { return res; } // Early exit
 
     auto const mv       = one.get_mdspanOfSelf();
     auto const mv_other = other.get_mdspanOfSelf();
@@ -2138,16 +2161,15 @@ inline constexpr BoxPacker_2D::ShapeREC::OverlayRes BoxPacker_2D::ShapeREC::_com
         if (mv_filledPastMemo[curPos.y, curPos.x] != 0) { return false; }
         mv_filledPastMemo[curPos.y, curPos.x] = 1;
 
-        for (long long const &row : {-1LL, 1LL}) {
-            if (curPos.y + row < 0 || curPos.y + row >= static_cast<long long>(h)) { continue; }
+        for (auto const [row, col] : detail::get_dirChanges_2D()) {
+            if (curPos.y + row < 0 || curPos.y + row >= static_cast<long long>(h) || curPos.x + col < 0 ||
+                curPos.x + col >= static_cast<long long>(w)) {
+                continue;
+            }
             curPos.y += row;
-            if (! self()) { return false; }
-            curPos.y -= row;
-        }
-        for (long long const &col : {-1LL, 1LL}) {
-            if (curPos.x + col < 0 || curPos.x + col >= static_cast<long long>(w)) { continue; }
             curPos.x += col;
             if (! self()) { return false; }
+            curPos.y -= row;
             curPos.x -= col;
         }
         return true;
