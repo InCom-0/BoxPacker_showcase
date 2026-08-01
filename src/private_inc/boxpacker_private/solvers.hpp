@@ -46,32 +46,6 @@ struct __strided_view {
 
 inline constexpr auto pf_views_stride = __strided_view{};
 
-template <size_t Dims, typename INT = long long, INT Chng = 1LL>
-requires(std::is_signed<INT>::value) && (Dims > 1uz)
-inline consteval auto get_dirChanges() {
-    constexpr size_t posCount = []<size_t... Is>(std::index_sequence<Is...>) {
-        return (0uz + ... + (static_cast<void>(Is), 2uz));
-    }(std::make_index_sequence<Dims>{});
-
-    std::array<std::array<INT, Dims>, posCount> res{};
-    for (size_t oneDir = 0uz; oneDir < Dims; ++oneDir) {
-        res[oneDir * 2][oneDir]       = Chng;
-        res[(oneDir * 2) + 1][oneDir] = (-1 * Chng);
-    }
-    return res;
-}
-
-template <typename INT = long long, INT Chng = 1LL>
-requires(std::is_signed<INT>::value)
-inline consteval auto get_dirChanges_2D() {
-    return get_dirChanges<2uz, INT, Chng>();
-}
-template <typename INT = long long, INT Chng = 1LL>
-requires(std::is_signed<INT>::value)
-inline consteval auto get_dirChanges_3D() {
-    return get_dirChanges<3uz, INT, Chng>();
-}
-
 } // namespace detail
 
 class BoxPacker_2D {
@@ -2153,7 +2127,7 @@ inline constexpr BoxPacker_2D::ShapeREC::OverlayRes BoxPacker_2D::ShapeREC::_com
         if (mv_gapPastMemo[curPos.y, curPos.x] != 0) { return false; }
         mv_gapPastMemo[curPos.y, curPos.x] = 1;
 
-        for (auto const &[row, col] : detail::get_dirChanges_2D()) {
+        for (auto const &[row, col] : explorers::directions::get_dirChanges_2D()) {
             if (curPos.y + row < 0 || curPos.y + row >= static_cast<long long>(h) || curPos.x + col < 0 ||
                 curPos.x + col >= static_cast<long long>(w)) {
                 continue;
@@ -2175,7 +2149,7 @@ inline constexpr BoxPacker_2D::ShapeREC::OverlayRes BoxPacker_2D::ShapeREC::_com
         if (mv_filledPastMemo[curPos.y, curPos.x] != 0) { return false; }
         mv_filledPastMemo[curPos.y, curPos.x] = 1;
 
-        for (auto const &[row, col] : detail::get_dirChanges_2D()) {
+        for (auto const &[row, col] : explorers::directions::get_dirChanges_2D()) {
             if (curPos.y + row < 0 || curPos.y + row >= static_cast<long long>(h) || curPos.x + col < 0 ||
                 curPos.x + col >= static_cast<long long>(w)) {
                 continue;
