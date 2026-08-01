@@ -30,11 +30,11 @@ namespace incom::box_packer {
 namespace incpack = incom::standard::solvers_TEMP::packing;
 using BP_Pos      = incpack::BoxPacker_2D::Pos;
 using BP_PastRes  = incpack::BoxPacker_2D::PastRes;
-using BP_Shape    = incpack::BoxPacker_2D::ShapeREC;
+using BP_Shape    = incpack::BoxPacker_2D::Shape;
 
 
 struct ShapesStorage {
-    std::vector<incpack::BoxPacker_2D::ShapeREC> m_shapes;
+    std::vector<incpack::BoxPacker_2D::Shape> m_shapes;
 
     bool swap(size_t cursorA, size_t cursorB) {
         if (m_shapes.size() < cursorA || m_shapes.size() < cursorB) { return false; }

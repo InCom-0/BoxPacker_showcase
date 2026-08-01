@@ -74,16 +74,12 @@ public:
     }
 #endif
 
-
     // Forward declarations
     struct Pos;
     struct AlternID;
 
     class Shape;
-    struct OverlayRes__OLD;
     struct PastRes;
-
-    class ShapeREC;
     struct ConsideredShapeOption;
 
 private:
@@ -104,293 +100,8 @@ public:
         auto operator<=>(AlternID const &) const = default;
     };
 
+
     class Shape {
-    private:
-        bool _upsize(size_t const target_sqsz);
-        bool _downsize(size_t const target_sqsz);
-        bool _downsize_withBorder(size_t const target_sqsz, size_t const borderThickness);
-
-        template <typename T>
-        requires more_concepts::container<T> && more_concepts::container<typename T::value_type>
-        static constexpr auto _verify_VofV_ctor(T const &VofV);
-
-    public:
-        using value_type  = unsigned char;
-        using matrix_type = std::vector<value_type>;
-
-        size_t      m_sqsz = 0;
-        matrix_type m_matrix;
-
-        static Shape make(size_t const sqsz) { return Shape{.m_sqsz = sqsz, .m_matrix = matrix_type(sqsz * sqsz, 0)}; }
-
-        template <typename T>
-        requires more_concepts::container<T> && more_concepts::container<typename T::value_type>
-        static Shape make(T const &VofV) {
-            auto const [_, maxLen] = _verify_VofV_ctor(VofV);
-            Shape res{.m_sqsz = maxLen, .m_matrix = std::vector<unsigned char>()};
-            res.m_matrix.reserve(maxLen * maxLen);
-
-            for (auto const &line : VofV) {
-                res.m_matrix.append_range(std::views::transform(
-                    line, [](auto const &oneChar) { return static_cast<unsigned char>(oneChar); }));
-                for (size_t id = line.size(); id < maxLen; ++id) { res.m_matrix.push_back(0); }
-            }
-            return res;
-        }
-
-        template <typename T>
-        requires more_concepts::container<T> && more_concepts::container<typename T::value_type>
-        static Shape make(T const &VofV, size_t const borderThickness) {
-            auto const [_, maxLen]  = _verify_VofV_ctor(VofV);
-            size_t const lineLength = (maxLen + (2 * borderThickness));
-            Shape        res{.m_sqsz = lineLength, .m_matrix = std::vector<unsigned char>()};
-
-            res.m_matrix.reserve(lineLength * lineLength);
-
-            for (size_t id = 0; id < (borderThickness * lineLength); ++id) { res.m_matrix.push_back(0); }
-            for (auto const &line : VofV) {
-                for (size_t id = 0; id < borderThickness; ++id) { res.m_matrix.push_back(0); }
-                res.m_matrix.append_range(std::views::transform(
-                    line, [](auto const &oneChar) { return static_cast<unsigned char>(oneChar); }));
-                for (size_t id = line.size(); id < (maxLen + borderThickness); ++id) { res.m_matrix.push_back(0); }
-            }
-            for (size_t id = 0; id < (borderThickness * lineLength); ++id) { res.m_matrix.push_back(0); }
-            return res;
-        }
-
-        void reset() { std::ranges::fill(m_matrix, 0); }
-        void reset(size_t const new_sqsz) {
-            m_sqsz = new_sqsz;
-            m_matrix.resize(new_sqsz * new_sqsz);
-            reset();
-        }
-        // constexpr std::array<char, 3> map{46, 35, 118};
-        // Shape &operator=(Shape const &) = default;
-        // Shape &operator=(Shape &&)      = default;
-
-        auto operator<=>(Shape const &other) const = default;
-
-        auto get_mdspanOfSelf() const {
-            return pf_mdspan<const unsigned char, pf_dextents<size_t, 2>>(m_matrix.data(), m_sqsz, m_sqsz);
-        }
-        auto get_mdspanOfSelf() {
-            return pf_mdspan<unsigned char, pf_dextents<size_t, 2>>(m_matrix.data(), m_sqsz, m_sqsz);
-        }
-
-        template <size_t N>
-        static Shape from_inner(std::array<std::array<bool, N>, N> const &src, size_t sqsz) {
-            assert(sqsz == N + 2);
-            auto out        = Shape::make(sqsz);
-            auto matrixView = out.get_mdspanOfSelf();
-            for (size_t r = 0; r < N; ++r) {
-                for (size_t c = 0; c < N; ++c) { matrixView[r + 1, c + 1] = src[r][c] ? 1 : 0; }
-            }
-            return out;
-        }
-
-        template <size_t N>
-        static Shape from_full(std::array<std::array<bool, N>, N> const &src, size_t sqsz) {
-            assert(sqsz == N);
-            Shape out(sqsz);
-            auto  matrixView = out.get_mdspanOfSelf();
-            for (size_t r = 0; r < N; ++r) {
-                for (size_t c = 0; c < N; ++c) { matrixView[r, c] = src[r][c] ? 1 : 0; }
-            }
-            return out;
-        }
-
-        int is_emptyOrFilled() const {
-            size_t const count = count_filled();
-            if (count == 0) { return -1; }
-            if (count == (m_sqsz * m_sqsz)) { return 1; }
-            return 0;
-        }
-
-        size_t count_filled() const {
-            return std::ranges::count_if(m_matrix, [](auto oneCell) { return oneCell != 0; });
-        }
-
-        size_t count_filledBorderLess() const {
-            size_t count      = 0;
-            auto   matrixView = get_mdspanOfSelf();
-            for (size_t r = 1; r < (m_sqsz - 1); ++r) {
-                for (size_t c = 1; c < (m_sqsz - 1); ++c) { count += (matrixView[r, c] != 0); }
-            }
-            return count;
-        }
-
-        constexpr OverlayRes__OLD compute_overlayWith(Shape const &other) const;
-
-        std::vector<Shape> compute_alternsRotFlip() const {
-            // namespace incmatrix = incom::standard::matrix;
-
-            auto shpCpy            = *this;
-            auto m_matrix_cpy_view = shpCpy.get_mdspanOfSelf();
-            ankerl::unordered_dense::set<Shape, standard::hashing::XXH3Hasher> hlprMP;
-
-            auto matriRotateLeft = [](auto &mdspn_square) -> void {
-                int const sideLength = mdspn_square.extent(0) - 1;
-                if (sideLength < 1 || (sideLength != (mdspn_square.extent(1) - 1))) { return; }
-
-                int circles = (sideLength + 2) / 2;
-                for (int cir = 0; cir < circles; cir++) {
-                    for (int i = 0; i < sideLength - (2 * cir); ++i) {
-                        std::swap(mdspn_square[cir, cir + i], mdspn_square[cir + i, sideLength - cir]);
-                        std::swap(mdspn_square[cir + i, sideLength - cir],
-                                  mdspn_square[sideLength - cir, sideLength - cir - i]);
-                        std::swap(mdspn_square[sideLength - cir, sideLength - cir - i],
-                                  mdspn_square[sideLength - cir - i, cir]);
-                    }
-                }
-                return;
-            };
-
-            hlprMP.insert(shpCpy);
-            for (int rot_i = 0; rot_i < 3; ++rot_i) {
-                matriRotateLeft(m_matrix_cpy_view);
-                hlprMP.insert(shpCpy);
-            }
-
-            for (size_t rowID = 0uz; rowID < m_matrix_cpy_view.extent(0); ++rowID) {
-                for (size_t i = 0; i < (m_matrix_cpy_view.extent(1) / 2); ++i) {
-                    std::swap(m_matrix_cpy_view[rowID, i],
-                              m_matrix_cpy_view[rowID, m_matrix_cpy_view.extent(1) - 1 - i]);
-                }
-            }
-
-            hlprMP.insert(shpCpy);
-            for (int rot_i = 0; rot_i < 3; ++rot_i) {
-                matriRotateLeft(m_matrix_cpy_view);
-                hlprMP.insert(shpCpy);
-            }
-            return std::vector<Shape>(hlprMP.begin(), hlprMP.end());
-        }
-
-
-        bool verify_borderExists(size_t const borderThickness) {
-            if (std::ranges::any_of(std::views::take(m_matrix, borderThickness * m_sqsz),
-                                    [](auto const chr) { return (chr != 0); })) {
-                return false;
-            }
-            if (std::ranges::any_of(std::views::drop(m_matrix, m_matrix.size() - (borderThickness * m_sqsz)),
-                                    [](auto const chr) { return (chr != 0); })) {
-                return false;
-            }
-            for (size_t skip = 0uz; skip < borderThickness; ++skip) {
-                if (std::ranges::any_of(detail::pf_views_stride(std::views::drop(m_matrix, skip), m_sqsz),
-                                        [](auto const chr) { return (chr != 0); })) {
-                    return false;
-                }
-                if (std::ranges::any_of(detail::pf_views_stride(std::views::drop(m_matrix, m_sqsz - 1 - skip), m_sqsz),
-                                        [](auto const chr) { return (chr != 0); })) {
-                    return false;
-                }
-            }
-            return true;
-        }
-
-        // If something part of the border had to be changed then returns 'true', otherwise returns 'false'
-        bool change_forceBorder(size_t const borderThickness) {
-            bool res = false;
-            for (auto &oneChr : std::views::take(m_matrix, borderThickness * m_sqsz)) {
-                res    |= (oneChr != 0);
-                oneChr  = 0;
-            }
-            for (auto &oneChr : std::views::drop(m_matrix, m_matrix.size() - (borderThickness * m_sqsz))) {
-                res    |= (oneChr != 0);
-                oneChr  = 0;
-            }
-            for (size_t skip = 0uz; skip < borderThickness; ++skip) {
-                for (auto &oneChr : detail::pf_views_stride(std::views::drop(m_matrix, skip), m_sqsz)) {
-                    res    |= (oneChr != 0);
-                    oneChr  = 0;
-                }
-                for (auto &oneChr : detail::pf_views_stride(std::views::drop(m_matrix, m_sqsz - 1 - skip), m_sqsz)) {
-                    res    |= (oneChr != 0);
-                    oneChr  = 0;
-                }
-            }
-
-            return res;
-        }
-
-        // Adds empty 'border' (ie. empty lines around the shape area)
-        // Performs m_sqsz += (2-borderThickness)
-        // Note: Adds border even if there already is a 'border' previously
-        void add_border(size_t const borderThickness) {
-            size_t const countToAdd    = (4 * borderThickness) * (m_sqsz + borderThickness);
-            size_t const targetTotalSz = m_matrix.size() + countToAdd;
-            size_t const target_sqsz   = m_sqsz + (2 * borderThickness);
-
-            while (m_matrix.size() < targetTotalSz) { m_matrix.push_back(0); }
-
-            size_t const rowDelta = target_sqsz - m_sqsz;
-            for (int oldRowID = (static_cast<int>(m_sqsz) - 1); oldRowID > 0; --oldRowID) {
-                size_t const fromStart = oldRowID * m_sqsz;
-                std::ranges::rotate(m_matrix.begin() + fromStart, m_matrix.begin() + fromStart + m_sqsz,
-                                    m_matrix.begin() + fromStart + m_sqsz + (rowDelta * oldRowID) + borderThickness +
-                                        (target_sqsz * borderThickness));
-            }
-
-            m_sqsz = target_sqsz;
-        }
-
-
-        // Return true if resized, returns false otherwise (no change to 'this')
-        bool resize_safe(size_t const target_sqsz) {
-            if (target_sqsz > m_sqsz) { return _upsize(target_sqsz); }
-            // The compiler will strip this 'unnecessary' condition
-            else if (target_sqsz < m_sqsz) { return _downsize(target_sqsz); }
-            return false;
-        }
-
-
-        // Return true if resized, returns false otherwise (no change to 'this')
-        bool resize_safe(size_t const target_sqsz, size_t const borderThickness) {
-            if (borderThickness > m_sqsz || borderThickness > target_sqsz || target_sqsz == m_sqsz) { return false; }
-
-            // Means 'no border' ... so same as baseline version
-            else if (borderThickness == 0uz) { return resize_safe(target_sqsz); }
-
-            // Verify that there actually is a border at this time, if not return 'false'
-            // May want to 'add_border' first if returned here or the data is somehow different than expected
-            else if (not verify_borderExists(borderThickness)) { return false; }
-
-            else if (target_sqsz > m_sqsz) { return _upsize(target_sqsz); } // Can do this just fine
-            else if (target_sqsz < m_sqsz) { return _downsize_withBorder(target_sqsz, borderThickness); }
-            return false;                                                   // This is unreachable
-        }
-
-        // Always resizes
-        // Return true if it were 'forced', returns false if as if by resize_safe()
-        // UNIMPLEMENTED
-        bool resize_force(size_t const target_sqsz) {
-
-            // if (resize_safe(target_sqsz)) { return false; }
-
-            // m_sqsz = target_sqsz;
-            // return true;
-            return false;
-        }
-
-
-        // UNIMPLEMENTED
-        std::string format_self(size_t const borderThickness = 0) {
-            constexpr std::array<char, 3> map{46, 35, 118};
-            std::string                   res;
-
-            return res;
-        }
-
-        friend constexpr void XXH3Hash(Shape const &input, XXH3_state_t *state) {
-            XXH3_64bits_update(state, input.m_matrix.data(),
-                               sizeof(typename std::remove_cvref_t<decltype(input.m_matrix)>::value_type) *
-                                   input.m_matrix.size());
-        }
-    };
-
-
-    class ShapeREC {
     public:
         using value_type  = unsigned char;
         using matrix_type = std::vector<value_type>;
@@ -407,14 +118,14 @@ public:
         // bool _change_size_withoutBorder(size_t const tarHeight, size_t const tarWidth);
         bool _resize_withBorder(size_t const tarHeight, size_t const tarWidth, size_t const borderThickness);
 
-        static constexpr OverlayRes _compute_overlayWith_impl(ShapeREC const &self_adj, ShapeREC const &other);
+        static constexpr OverlayRes _compute_overlayWith_impl(Shape const &self_adj, Shape const &other);
 
         template <typename T>
         requires more_concepts::container<T> && more_concepts::container<typename T::value_type>
         constexpr static auto _verify_VofV_ctor(T const &VofV);
 
     public:
-        auto operator<=>(ShapeREC const &other) const = default;
+        auto operator<=>(Shape const &other) const = default;
         auto get_mdspanOfSelf() const {
             return pf_mdspan<const unsigned char, pf_dextents<size_t, 2>>(m_matrix.data(), m_height, m_width);
         }
@@ -422,20 +133,19 @@ public:
             return pf_mdspan<unsigned char, pf_dextents<size_t, 2>>(m_matrix.data(), m_height, m_width);
         }
 
-        static ShapeREC make(size_t const sqsz) {
-            return ShapeREC{.m_height = sqsz, .m_width = sqsz, .m_matrix = matrix_type(sqsz * sqsz, 0)};
+        static Shape make(size_t const sqsz) {
+            return Shape{.m_height = sqsz, .m_width = sqsz, .m_matrix = matrix_type(sqsz * sqsz, 0)};
         }
 
-        static ShapeREC make(size_t const tarHeight, size_t const tarWidth) {
-            return ShapeREC{
-                .m_height = tarHeight, .m_width = tarWidth, .m_matrix = matrix_type(tarHeight * tarWidth, 0)};
+        static Shape make(size_t const tarHeight, size_t const tarWidth) {
+            return Shape{.m_height = tarHeight, .m_width = tarWidth, .m_matrix = matrix_type(tarHeight * tarWidth, 0)};
         }
 
         template <typename T>
         requires more_concepts::container<T> && more_concepts::container<typename T::value_type>
-        static ShapeREC make(T const &VofV) {
+        static Shape make(T const &VofV) {
             auto const [height, maxWidth] = _verify_VofV_ctor(VofV);
-            ShapeREC res{.m_height = height, .m_width = maxWidth, .m_matrix = matrix_type{}};
+            Shape res{.m_height = height, .m_width = maxWidth, .m_matrix = matrix_type{}};
             res.m_matrix.reserve(height * maxWidth);
 
             for (auto const &line : VofV) {
@@ -449,11 +159,11 @@ public:
 
         template <typename T>
         requires more_concepts::container<T> && more_concepts::container<typename T::value_type>
-        static ShapeREC make(T const &VofV, size_t const borderThickness) {
+        static Shape make(T const &VofV, size_t const borderThickness) {
             auto const [height, maxWidth] = _verify_VofV_ctor(VofV);
             size_t const heightInclBorder = (height + (2 * borderThickness));
             size_t const widthInclBorder  = (maxWidth + (2 * borderThickness));
-            ShapeREC     res{.m_height = heightInclBorder, .m_width = widthInclBorder, .m_matrix = matrix_type()};
+            Shape        res{.m_height = heightInclBorder, .m_width = widthInclBorder, .m_matrix = matrix_type()};
             res.m_matrix.reserve(heightInclBorder * widthInclBorder);
 
             for (size_t id = 0; id < (borderThickness * widthInclBorder); ++id) { res.m_matrix.push_back(0); }
@@ -470,8 +180,8 @@ public:
 
         template <typename T, size_t H, size_t W, size_t borderThickness_c = 0uz>
         requires std::convertible_to<T, value_type>
-        static ShapeREC make(std::array<std::array<T, W>, H> const &src) {
-            auto out        = ShapeREC::make(H + (2 * borderThickness_c), W + (2 * borderThickness_c));
+        static Shape make(std::array<std::array<T, W>, H> const &src) {
+            auto out        = Shape::make(H + (2 * borderThickness_c), W + (2 * borderThickness_c));
             auto matrixView = out.get_mdspanOfSelf();
             for (size_t r = borderThickness_c; r < (H + borderThickness_c); ++r) {
                 for (size_t c = borderThickness_c; c < (H + borderThickness_c); ++c) {
@@ -501,9 +211,7 @@ public:
             return 0;
         }
 
-        bool has_sameSizeAs(ShapeREC const &other) {
-            return ((m_height == other.m_height) && (m_width == other.m_width));
-        }
+        bool has_sameSizeAs(Shape const &other) { return ((m_height == other.m_height) && (m_width == other.m_width)); }
 
         size_t count_filled() const {
             return std::ranges::count_if(m_matrix, [](auto oneCell) { return oneCell != 0; });
@@ -532,7 +240,7 @@ public:
             return count;
         }
 
-        constexpr OverlayRes compute_overlayWith(ShapeREC const &other) const;
+        constexpr OverlayRes compute_overlayWith(Shape const &other) const;
 
 
         void flip_v() {
@@ -552,10 +260,10 @@ public:
             }
         }
 
-        ShapeREC rotateCopy_left() const {
-            ShapeREC res{.m_height = m_width, .m_width = m_height, .m_matrix = matrix_type(m_height * m_width, 0)};
-            auto     mdspn_src = get_mdspanOfSelf();
-            auto     mdspn_res = res.get_mdspanOfSelf();
+        Shape rotateCopy_left() const {
+            Shape res{.m_height = m_width, .m_width = m_height, .m_matrix = matrix_type(m_height * m_width, 0)};
+            auto  mdspn_src = get_mdspanOfSelf();
+            auto  mdspn_res = res.get_mdspanOfSelf();
 
             // Swapped indices between 'src' and 'res' + 'flipped' height index
             for (size_t srcRow = 0uz; srcRow < m_height; ++srcRow) {
@@ -566,10 +274,10 @@ public:
             return res;
         }
 
-        ShapeREC rotateCopy_right() const {
-            ShapeREC res{.m_height = m_width, .m_width = m_height, .m_matrix = matrix_type(m_height * m_width, 0)};
-            auto     mdspn_src = get_mdspanOfSelf();
-            auto     mdspn_res = res.get_mdspanOfSelf();
+        Shape rotateCopy_right() const {
+            Shape res{.m_height = m_width, .m_width = m_height, .m_matrix = matrix_type(m_height * m_width, 0)};
+            auto  mdspn_src = get_mdspanOfSelf();
+            auto  mdspn_res = res.get_mdspanOfSelf();
 
             // Swapped indices between 'src' and 'res' + 'flipped' height index
             for (size_t srcRow = 0uz; srcRow < m_height; ++srcRow) {
@@ -581,10 +289,10 @@ public:
         }
 
 
-        std::vector<ShapeREC> compute_alternsRotFlip() const {
+        std::vector<Shape> compute_alternsRotFlip() const {
             auto shpCpy         = *this;
             auto shpCpy_rotated = shpCpy.rotateCopy_left();
-            ankerl::unordered_dense::set<ShapeREC, standard::hashing::XXH3Hasher> hlprMP;
+            ankerl::unordered_dense::set<Shape, standard::hashing::XXH3Hasher> hlprMP;
 
             hlprMP.insert(shpCpy);
             shpCpy.flip_v();
@@ -602,12 +310,12 @@ public:
             shpCpy_rotated.flip_v();
             hlprMP.insert(shpCpy_rotated);
 
-            return std::vector<ShapeREC>(hlprMP.begin(), hlprMP.end());
+            return std::vector<Shape>(hlprMP.begin(), hlprMP.end());
         }
 
-        std::vector<ShapeREC> compute_alternsFlip() const {
-            auto                                                                  shpCpy = *this;
-            ankerl::unordered_dense::set<ShapeREC, standard::hashing::XXH3Hasher> hlprMP;
+        std::vector<Shape> compute_alternsFlip() const {
+            auto                                                               shpCpy = *this;
+            ankerl::unordered_dense::set<Shape, standard::hashing::XXH3Hasher> hlprMP;
 
             hlprMP.insert(shpCpy);
             shpCpy.flip_v();
@@ -617,7 +325,7 @@ public:
             shpCpy.flip_v();
             hlprMP.insert(shpCpy);
 
-            return std::vector<ShapeREC>(hlprMP.begin(), hlprMP.end());
+            return std::vector<Shape>(hlprMP.begin(), hlprMP.end());
         }
 
 
@@ -765,7 +473,7 @@ public:
             return res;
         }
 
-        friend constexpr void XXH3Hash(ShapeREC const &input, XXH3_state_t *state) {
+        friend constexpr void XXH3Hash(Shape const &input, XXH3_state_t *state) {
             XXH3_64bits_update(state, input.m_matrix.data(),
                                sizeof(typename std::remove_cvref_t<decltype(input.m_matrix)>::value_type) *
                                    input.m_matrix.size());
@@ -776,7 +484,7 @@ public:
 
 private:
     struct __OverlayRes {
-        BoxPacker_2D::ShapeREC ol_shp;
+        BoxPacker_2D::Shape ol_shp;
 
 
         size_t pointsAdded        = 0;
@@ -798,34 +506,14 @@ private:
     };
 
 public:
-    struct OverlayRes__OLD {
-        Shape ol_shp;
-
-        size_t pointsAdded        = 0;
-        size_t pointsOverlaid     = 0;
-        size_t bordersTouching    = 0;
-        size_t bordersNotTouching = 0;
-
-        size_t pointsTouching    = 0;
-        size_t pointsNotTouching = 0;
-
-        size_t gapsCount   = 0;
-        size_t shapesCount = 0;
-
-        double surfacePointsCovered_relative = 0.0;
-        double surfacePointsOpened_relative  = std::numeric_limits<double>::infinity();
-
-        double surfaceCovered_relative = 0.0;
-        double surfaceOpened_relative  = std::numeric_limits<double>::infinity();
-    };
-
-
+    // Objects of this type are stored inside m_pastComputed and are referenced from m_frontierTiles
     struct PastRes {
-        size_t               uncoveredBySurr = 0;
-        AlternID             ol_shpID{};
-        ShapeREC::OverlayRes ol_res{};
+        size_t            uncoveredBySurr = 0;
+        AlternID          ol_shpID{};
+        Shape::OverlayRes ol_res{};
     };
 
+    // This is the type that gets created by findNextStep functions
     struct ConsideredShapeOption {
         enum class Type : uint8_t {
             Gapless = 1,
@@ -839,11 +527,11 @@ public:
         Type type = Type::Gapcreating;
     };
 
-    using possibilitiesByShape_t     = std::vector<std::vector<PastRes>>;
-    using frontierTilePossibs_t      = std::optional<std::reference_wrapper<possibilitiesByShape_t>>;
-    using consideredOptionsByShape_t = std::vector<std::vector<ConsideredShapeOption>>;
+    using possibsByShape_t      = std::vector<std::vector<PastRes>>;
+    using frontierTilePossibs_t = std::optional<std::reference_wrapper<possibsByShape_t>>;
     using pastResMap_t =
-        ankerl::unordered_dense::segmented_map<ShapeREC, possibilitiesByShape_t, incom::standard::hashing::XXH3Hasher>;
+        ankerl::unordered_dense::segmented_map<Shape, possibsByShape_t, incom::standard::hashing::XXH3Hasher>;
+    using consideredOptionsByShape_t = std::vector<std::vector<ConsideredShapeOption>>;
 
     struct SolverPolicy {
         struct SelectionState {
@@ -913,13 +601,12 @@ public:
     BoxPacker_2D(size_t const sqsz, size_t const area_ySize, size_t const area_xSize,
                  std::vector<std::array<std::array<bool, N>, N>> const &shps, std::vector<size_t> const &shps_counts,
                  size_t const firstTile_yPos = 0, size_t const firstTile_xPos = 0, pastResMap_t const &pastReslts = {})
-        : BoxPacker_2D(sqsz, area_ySize, area_xSize,
-                       std::views::transform(shps,
-                                             [&](auto const &smallerShp) {
-                                                 return Shape::from_inner(smallerShp, sqsz).compute_alternsRotFlip();
-                                             }) |
-                           std::ranges::to<std::vector>(),
-                       shps_counts, firstTile_yPos, firstTile_xPos, pastReslts) {}
+        : BoxPacker_2D(
+              sqsz, area_ySize, area_xSize,
+              std::views::transform(
+                  shps, [&](auto const &smallerShp) { return Shape::make(smallerShp, 1).compute_alternsRotFlip(); }) |
+                  std::ranges::to<std::vector>(),
+              shps_counts, firstTile_yPos, firstTile_xPos, pastReslts) {}
 
     template <size_t N>
     BoxPacker_2D(size_t const sqsz, size_t const area_ySize, size_t const area_xSize,
@@ -929,10 +616,9 @@ public:
         : BoxPacker_2D(sqsz, area_ySize, area_xSize,
                        std::views::transform(shpsAltrs,
                                              [&](auto const &oneShpAltrns) {
-                                                 return std::views::transform(oneShpAltrns,
-                                                                              [&](auto const &item) {
-                                                                                  return Shape::from_inner(item, sqsz);
-                                                                              }) |
+                                                 return std::views::transform(
+                                                            oneShpAltrns,
+                                                            [&](auto const &item) { return Shape::make(item, 1); }) |
                                                         std::ranges::to<std::vector>();
                                              }) |
                            std::ranges::to<std::vector>(),
@@ -948,7 +634,7 @@ public:
 
 
     BoxPacker_2D(size_t const sqsz, size_t const area_ySize, size_t const area_xSize,
-                 std::vector<std::vector<ShapeREC>> const &shps_alterns, std::vector<size_t> const &shps_counts,
+                 std::vector<std::vector<Shape>> const &shps_alterns, std::vector<size_t> const &shps_counts,
                  size_t const firstTile_yPos = 0, size_t const firstTile_xPos = 0, pastResMap_t const &pastReslts = {})
         : m_sqsz(sqsz), m_shapeOLCount_full((2 * sqsz) - 1), m_shapeOLCount_border((2 * sqsz) - 3),
           m_shapeOLCount_inside((2 * sqsz) - 5), m_useableCount_perShape(shps_counts),
@@ -1016,9 +702,9 @@ private:
     std::vector<unsigned char> m_area;
     size_t                     m_placedShapes = 0uz;
 
-    Pos                                m_firstTilePos;
-    std::vector<std::vector<ShapeREC>> m_shapes_alterns;
-    size_t                             m_shapesMaxEmpty = 0;
+    Pos                             m_firstTilePos;
+    std::vector<std::vector<Shape>> m_shapes_alterns;
+    size_t                          m_shapesMaxEmpty = 0;
 
     std::vector<size_t>                       m_useableCount_perShape;
     std::vector<double>                       m_shapesRatios_orig;
@@ -1252,7 +938,7 @@ private:
     template <typename Predicate>
     void collect_consideredOptionsAt(consideredOptionsByShape_t &toConsider, bool &anyFilled,
                                      typename SolverPolicy::SelectionState &selectionState, Pos const &candidatePos,
-                                     possibilitiesByShape_t const     &possibilitiesByShape,
+                                     possibsByShape_t const           &possibilitiesByShape,
                                      std::vector<double> const        &perShpScoringAdj,
                                      ConsideredShapeOption::Type const type, Predicate const &predicate) const {
         for (auto const &v_pr2 : std::views::filter(possibilitiesByShape, [this](auto const &oneShpAltsVec) {
@@ -1284,10 +970,10 @@ private:
         return std::vector<double>(ratiosHlprView.begin(), ratiosHlprView.end());
     }
 
-    possibilitiesByShape_t &getOrCompute_possibsFor(ShapeREC const &tile) {
-        auto insRes = m_pastComputed.insert({tile, possibilitiesByShape_t(m_shapes_alterns.size())});
+    possibsByShape_t &getOrCompute_possibsFor(Shape const &tile) {
+        auto insRes = m_pastComputed.insert({tile, possibsByShape_t(m_shapes_alterns.size())});
         if (insRes.second) {
-            possibilitiesByShape_t &vpr = insRes.first->second;
+            possibsByShape_t &vpr = insRes.first->second;
 
             for (size_t shpID = 0; shpID < m_shapes_alterns.size(); ++shpID) {
                 for (size_t alternID = 0; alternID < m_shapes_alterns.at(shpID).size(); ++alternID) {
@@ -1302,7 +988,7 @@ private:
         return insRes.first->second;
     }
 
-    std::optional<std::vector<std::vector<ConsideredShapeOption>>> findNextStep_covering() {
+    std::optional<consideredOptionsByShape_t> findNextStep_covering() {
         if (m_uncoverableFrontierPoss.empty()) { return std::nullopt; }
 
         std::vector<unsigned char>                       tracker(m_frontier_ySz * m_frontier_xSz, 0);
@@ -1386,7 +1072,7 @@ private:
         return std::nullopt;
     }
 
-    std::optional<std::vector<std::vector<ConsideredShapeOption>>> findNextStep_regular() const {
+    std::optional<consideredOptionsByShape_t> findNextStep_regular() const {
         consideredOptionsByShape_t            toConsider(m_shapes_alterns.size());
         bool                                  anyFilled = false;
         typename SolverPolicy::SelectionState selectionState{};
@@ -1408,7 +1094,7 @@ private:
         return toConsider;
     }
 
-    std::optional<std::vector<std::vector<ConsideredShapeOption>>> findNextStep_withGap() const {
+    std::optional<consideredOptionsByShape_t> findNextStep_withGap() const {
         consideredOptionsByShape_t            toConsider(m_shapes_alterns.size());
         bool                                  anyFilled = false;
         typename SolverPolicy::SelectionState selectionState{};
@@ -1533,11 +1219,11 @@ private:
         return res;
     }
 
-    std::optional<ShapeREC> get_windowAtPos(Pos const &shapePos) const {
+    std::optional<Shape> get_windowAtPos(Pos const &shapePos) const {
 
         if (shapePos.y >= 0 && shapePos.y <= static_cast<long long>(m_area_ySize - m_sqsz) && shapePos.x >= 0 &&
             shapePos.x <= static_cast<long long>(m_area_xSize - m_sqsz)) {
-            auto res      = ShapeREC::make(m_sqsz);
+            auto res      = Shape::make(m_sqsz);
             auto res_view = res.get_mdspanOfSelf();
             auto areaView = get_mdspanOfArea();
             for (long long row = shapePos.y; row < shapePos.y + static_cast<long long>(m_sqsz); ++row) {
@@ -1643,160 +1329,6 @@ public:
 // ### IMPLEMENTATIONS
 // ##################################
 
-inline bool BoxPacker_2D::Shape::_upsize(size_t const target_sqsz) {
-    size_t const targetTotalSz = (target_sqsz * target_sqsz);
-    while (m_matrix.size() < targetTotalSz) { m_matrix.push_back(0); }
-
-    size_t const rowDelta = target_sqsz - m_sqsz;
-    for (int oldRowID = (static_cast<int>(m_sqsz) - 1); oldRowID > 0; --oldRowID) {
-        size_t const fromStart = oldRowID * m_sqsz;
-        std::ranges::rotate(m_matrix.begin() + fromStart, m_matrix.begin() + fromStart + m_sqsz,
-                            m_matrix.begin() + fromStart + m_sqsz + (rowDelta * oldRowID));
-    }
-
-    m_sqsz = target_sqsz;
-    return true;
-}
-inline bool BoxPacker_2D::Shape::_downsize(size_t const target_sqsz) {
-    size_t       rowDelta     = m_sqsz - target_sqsz;
-    size_t       colDelta     = rowDelta;
-    auto         row_startEnd = std::pair{0uz, m_sqsz};
-    auto         col_startEnd = row_startEnd;
-    size_t const tarItemCount = target_sqsz * target_sqsz;
-
-    // Rows: Can remove from the end?
-    for (long long skip = (static_cast<long long>(m_matrix.size()) - static_cast<long long>(m_sqsz));
-         (skip > 0ll && rowDelta != 0); skip -= m_sqsz) {
-        if (std::ranges::all_of(std::views::drop(m_matrix, skip) | std::views::take(m_sqsz),
-                                [](auto const chr) { return chr == 0; })) {
-            row_startEnd.second--;
-            rowDelta--;
-        }
-        else { break; } // We break only if we can't remove all we need from the end, we shall try from the beginning
-    }
-    // Rows: Can remove from the beginning?
-    for (size_t skip = 0uz; (skip < m_matrix.size() && rowDelta != 0); skip += m_sqsz) {
-        if (std::ranges::all_of(std::views::drop(m_matrix, skip) | std::views::take(m_sqsz),
-                                [](auto const chr) { return chr == 0; })) {
-            row_startEnd.first++;
-            rowDelta--;
-        }
-        else { return false; } // We cannot safely resize (downsize) because each row has some data
-    }
-
-
-    // Cols: Can remove from the end?
-    for (size_t dropAdj = 1; (dropAdj < m_sqsz && colDelta != 0); ++dropAdj) {
-        if (std::ranges::all_of(detail::pf_views_stride(std::views::drop(m_matrix, m_sqsz - dropAdj), m_sqsz),
-                                [](auto const chr) { return chr == 0; })) {
-            col_startEnd.second--;
-            colDelta--;
-        }
-        else { break; } // We break only if we can't remove all we need from the end, we shall try from the beginning
-    }
-
-    // Cols: Can remove from the beginning?
-    for (size_t dropAdj = 0; (dropAdj < m_sqsz && colDelta != 0); ++dropAdj) {
-        if (std::ranges::all_of(detail::pf_views_stride(std::views::drop(m_matrix, dropAdj), m_sqsz),
-                                [](auto const chr) { return chr == 0; })) {
-            col_startEnd.first++;
-            colDelta--;
-        }
-        else { return false; }
-    }
-
-    for (size_t curRow = 0; curRow < target_sqsz; ++curRow) {
-
-        std::ranges::rotate(m_matrix.begin() + (curRow * target_sqsz),
-                            m_matrix.begin() + (((row_startEnd.first + curRow) * m_sqsz) + (col_startEnd.first)),
-                            m_matrix.begin() + (((row_startEnd.first + curRow) * m_sqsz) + (col_startEnd.first)) +
-                                target_sqsz);
-    }
-
-    m_matrix.resize(tarItemCount);
-
-    m_sqsz = target_sqsz;
-    return true;
-}
-
-// Downsizes just the 'inner' part of the shape (that is without border)
-inline bool BoxPacker_2D::Shape::_downsize_withBorder(size_t const target_sqsz, size_t const borderThickness) {
-    size_t       rowDelta     = m_sqsz - target_sqsz;
-    size_t       colDelta     = rowDelta;
-    auto         row_startEnd = std::pair{borderThickness, m_sqsz - borderThickness};
-    auto         col_startEnd = row_startEnd;
-    size_t const tarItemCount = target_sqsz * target_sqsz;
-
-    // Rows: Can remove from the end?
-    for (long long skip =
-             (static_cast<long long>(m_matrix.size()) - static_cast<long long>((borderThickness + 1) * m_sqsz)) +
-             static_cast<long long>(borderThickness);
-         (skip > 0ll && rowDelta != 0); skip -= m_sqsz) {
-        if (std::ranges::all_of(std::views::drop(m_matrix, skip) | std::views::take(m_sqsz - (2 * borderThickness)),
-                                [](auto const chr) { return chr == 0; })) {
-            row_startEnd.second--;
-            rowDelta--;
-        }
-        else { break; } // We break only if we can't remove all we need from the end, we shall try from the beginning
-    }
-    // Rows: Can remove from the beginning?
-    for (size_t skip  = (borderThickness * m_sqsz) + borderThickness; (skip < m_matrix.size() && rowDelta != 0);
-         skip        += m_sqsz) {
-        if (std::ranges::all_of(std::views::drop(m_matrix, skip) | std::views::take(m_sqsz - (2 * borderThickness)),
-                                [](auto const chr) { return chr == 0; })) {
-            row_startEnd.first++;
-            rowDelta--;
-        }
-        else { return false; } // We cannot safely resize (downsize) because each row has some data
-    }
-
-
-    // Cols: Can remove from the end?
-    for (size_t dropAdj = 1; (dropAdj < m_sqsz && colDelta != 0); ++dropAdj) {
-        if (std::ranges::all_of(
-                detail::pf_views_stride(std::views::drop(m_matrix, m_sqsz - dropAdj - borderThickness), m_sqsz),
-                [](auto const chr) { return chr == 0; })) {
-            col_startEnd.second--;
-            colDelta--;
-        }
-        else { break; } // We break only if we can't remove all we need from the end, we shall try from the beginning
-    }
-
-    // Cols: Can remove from the beginning?
-    for (size_t dropAdj = 0; (dropAdj < m_sqsz && colDelta != 0); ++dropAdj) {
-        if (std::ranges::all_of(detail::pf_views_stride(std::views::drop(m_matrix, dropAdj + borderThickness), m_sqsz),
-                                [](auto const chr) { return chr == 0; })) {
-            col_startEnd.first++;
-            colDelta--;
-        }
-        else { return false; }
-    }
-
-    for (size_t curRow = borderThickness; curRow < target_sqsz; ++curRow) {
-
-        std::ranges::rotate(
-            m_matrix.begin() + (curRow * target_sqsz) + borderThickness,
-            m_matrix.begin() + (((row_startEnd.first + curRow - borderThickness) * m_sqsz) + (col_startEnd.first)),
-            m_matrix.begin() + (((row_startEnd.first + curRow - borderThickness) * m_sqsz) + (col_startEnd.first)) +
-                target_sqsz);
-    }
-
-    m_matrix.resize(tarItemCount);
-
-    m_sqsz = target_sqsz;
-    return true;
-}
-
-template <typename T>
-requires more_concepts::container<T> && more_concepts::container<typename T::value_type>
-constexpr inline auto BoxPacker_2D::Shape::_verify_VofV_ctor(T const &VofV) {
-    std::pair res{true, VofV.size()};
-    for (auto const &line : VofV) {
-        if (line.size() != res.second) { res.first = false; }
-        res.second = std::max(res.second, line.size());
-    }
-    return res;
-}
 
 // UNIMPLEMENTED
 // inline bool BoxPacker_2D::ShapeREC::_change_size_withoutBorder(size_t const tarHeight, size_t const tarWidth) {
@@ -1807,8 +1339,8 @@ constexpr inline auto BoxPacker_2D::Shape::_verify_VofV_ctor(T const &VofV) {
 // }
 
 // Downsizes just the 'inner' part of the shape (that is without border)
-inline bool BoxPacker_2D::ShapeREC::_resize_withBorder(size_t const tarHeight, size_t const tarWidth,
-                                                       size_t const borderThickness) {
+inline bool BoxPacker_2D::Shape::_resize_withBorder(size_t const tarHeight, size_t const tarWidth,
+                                                    size_t const borderThickness) {
     long long const rowDelta     = static_cast<long long>(tarHeight) - static_cast<long long>(m_height);
     long long const colDelta     = static_cast<long long>(tarWidth) - static_cast<long long>(m_width);
     auto            row_startEnd = std::pair{borderThickness, m_height - borderThickness};
@@ -1906,7 +1438,7 @@ inline bool BoxPacker_2D::ShapeREC::_resize_withBorder(size_t const tarHeight, s
 
 template <typename T>
 requires more_concepts::container<T> && more_concepts::container<typename T::value_type>
-constexpr inline auto BoxPacker_2D::ShapeREC::_verify_VofV_ctor(T const &VofV) {
+constexpr inline auto BoxPacker_2D::Shape::_verify_VofV_ctor(T const &VofV) {
     std::pair res{VofV.size(), 0uz};
     res.second = std::ranges::fold_left(std::views::transform(VofV, [](auto const &line) { return line.size(); }), 0uz,
                                         [&](auto &&init, auto const &oneLen) {
@@ -1918,149 +1450,12 @@ constexpr inline auto BoxPacker_2D::ShapeREC::_verify_VofV_ctor(T const &VofV) {
 }
 
 
-inline constexpr BoxPacker_2D::OverlayRes__OLD BoxPacker_2D::Shape::compute_overlayWith(Shape const &other) const {
-    assert(m_sqsz == other.m_sqsz);
-    BoxPacker_2D::OverlayRes__OLD res{
-        .ol_shp{.m_sqsz = m_sqsz, .m_matrix = std::vector<unsigned char>(m_sqsz * m_sqsz, 0)}};
+inline constexpr BoxPacker_2D::Shape::OverlayRes BoxPacker_2D::Shape::_compute_overlayWith_impl(Shape const &one,
+                                                                                                Shape const &other) {
 
-    auto const mv       = get_mdspanOfSelf();
-    auto const mv_other = other.get_mdspanOfSelf();
-    auto const mv_res   = res.ol_shp.get_mdspanOfSelf();
-
-    for (size_t r = 0; r < m_sqsz; ++r) {
-        for (size_t c = 0; c < m_sqsz; ++c) {
-            res.pointsOverlaid += (mv[r, c] != 0) && (mv_other[r, c] != 0);
-            res.pointsAdded    += (mv[r, c] == 0) && (mv_other[r, c] != 0);
-            mv_res[r, c]        = (mv[r, c] != 0 || mv_other[r, c] != 0) ? 1 : 0;
-        }
-    }
-
-    Shape touch    = Shape::make(m_sqsz);
-    Shape notTouch = Shape::make(m_sqsz);
-
-    auto mv_touch    = touch.get_mdspanOfSelf();
-    auto mv_notTouch = notTouch.get_mdspanOfSelf();
-
-    for (size_t r = 1; r < m_sqsz - 1; ++r) {
-        for (size_t c = 1; c < m_sqsz - 1; ++c) {
-            if (mv_other[r, c] == 0) { continue; }
-
-            res.bordersTouching += (mv[r - 1, c] != 0) && (mv_other[r - 1, c] == 0);
-            res.bordersTouching += (mv[r, c - 1] != 0) && (mv_other[r, c - 1] == 0);
-            res.bordersTouching += (mv[r, c + 1] != 0) && (mv_other[r, c + 1] == 0);
-            res.bordersTouching += (mv[r + 1, c] != 0) && (mv_other[r + 1, c] == 0);
-
-            mv_touch[r - 1, c] |= (mv[r - 1, c] != 0) && (mv_other[r - 1, c] == 0);
-            mv_touch[r, c - 1] |= (mv[r, c - 1] != 0) && (mv_other[r, c - 1] == 0);
-            mv_touch[r, c + 1] |= (mv[r, c + 1] != 0) && (mv_other[r, c + 1] == 0);
-            mv_touch[r + 1, c] |= (mv[r + 1, c] != 0) && (mv_other[r + 1, c] == 0);
-
-            res.bordersNotTouching += (mv[r - 1, c] == 0) && (mv_other[r - 1, c] == 0);
-            res.bordersNotTouching += (mv[r, c - 1] == 0) && (mv_other[r, c - 1] == 0);
-            res.bordersNotTouching += (mv[r, c + 1] == 0) && (mv_other[r, c + 1] == 0);
-            res.bordersNotTouching += (mv[r + 1, c] == 0) && (mv_other[r + 1, c] == 0);
-
-            mv_notTouch[r - 1, c] |= (mv[r - 1, c] == 0) && (mv_other[r - 1, c] == 0);
-            mv_notTouch[r, c - 1] |= (mv[r, c - 1] == 0) && (mv_other[r, c - 1] == 0);
-            mv_notTouch[r, c + 1] |= (mv[r, c + 1] == 0) && (mv_other[r, c + 1] == 0);
-            mv_notTouch[r + 1, c] |= (mv[r + 1, c] == 0) && (mv_other[r + 1, c] == 0);
-        }
-    }
-
-    Shape gapPastMemo    = Shape::make(m_sqsz);
-    Shape filledPastMemo = Shape::make(m_sqsz);
-    Shape curMemo        = Shape::make(m_sqsz);
-
-    auto mv_gasPastMemo    = gapPastMemo.get_mdspanOfSelf();
-    auto mv_filledPastMemo = filledPastMemo.get_mdspanOfSelf();
-    auto mv_curMemo        = curMemo.get_mdspanOfSelf();
-
-    Pos curPos{.y = 0, .x = 0};
-
-    auto gapsRecLambda = [&](this auto const &self) -> bool {
-        if (mv_res[curPos.y, curPos.x] != 0) { return true; }
-        if (mv_curMemo[curPos.y, curPos.x] != 0) { return true; }
-        mv_curMemo[curPos.y, curPos.x] = 1;
-
-        if (mv_gasPastMemo[curPos.y, curPos.x] != 0) { return false; }
-        mv_gasPastMemo[curPos.y, curPos.x] = 1;
-
-        for (long long const &row : {-1LL, 1LL}) {
-            if (curPos.y + row < 0 || curPos.y + row >= static_cast<long long>(m_sqsz)) { continue; }
-            curPos.y += row;
-            if (! self()) { return false; }
-            curPos.y -= row;
-        }
-        for (long long const &col : {-1LL, 1LL}) {
-            if (curPos.x + col < 0 || curPos.x + col >= static_cast<long long>(m_sqsz)) { continue; }
-            curPos.x += col;
-            if (! self()) { return false; }
-            curPos.x -= col;
-        }
-        return true;
-    };
-
-    auto filledRecLambda = [&](this auto const &self) -> bool {
-        if (mv_res[curPos.y, curPos.x] == 0) { return true; }
-        if (mv_curMemo[curPos.y, curPos.x] != 0) { return true; }
-        mv_curMemo[curPos.y, curPos.x] = 1;
-
-        if (mv_filledPastMemo[curPos.y, curPos.x] != 0) { return false; }
-        mv_filledPastMemo[curPos.y, curPos.x] = 1;
-
-        for (long long const &row : {-1LL, 1LL}) {
-            if (curPos.y + row < 0 || curPos.y + row >= static_cast<long long>(m_sqsz)) { continue; }
-            curPos.y += row;
-            if (! self()) { return false; }
-            curPos.y -= row;
-        }
-        for (long long const &col : {-1LL, 1LL}) {
-            if (curPos.x + col < 0 || curPos.x + col >= static_cast<long long>(m_sqsz)) { continue; }
-            curPos.x += col;
-            if (! self()) { return false; }
-            curPos.x -= col;
-        }
-        return true;
-    };
-
-    for (size_t r = 0; r < m_sqsz; ++r) {
-        for (size_t c = 0; c < m_sqsz; ++c) {
-            if (mv_res[r, c] == 0 && mv_gasPastMemo[r, c] == 0) {
-                curPos.y = static_cast<long long>(r);
-                curPos.x = static_cast<long long>(c);
-                curMemo.reset();
-                res.gapsCount += gapsRecLambda();
-            }
-            if (mv_res[r, c] != 0 && mv_filledPastMemo[r, c] == 0) {
-                curPos.y = static_cast<long long>(r);
-                curPos.x = static_cast<long long>(c);
-                curMemo.reset();
-                res.shapesCount += filledRecLambda();
-            }
-        }
-    }
-
-    res.pointsTouching    = touch.count_filled();
-    res.pointsNotTouching = notTouch.count_filled();
-    double const denomP   = std::max(static_cast<double>(res.pointsTouching + res.pointsNotTouching), 1.0);
-    double const denomB   = std::max(static_cast<double>(res.bordersTouching + res.bordersNotTouching), 1.0);
-
-    res.surfacePointsCovered_relative = res.pointsTouching / denomP;
-    res.surfacePointsOpened_relative  = res.pointsNotTouching / denomP;
-
-    res.surfaceCovered_relative = res.bordersTouching / denomB;
-    res.surfaceOpened_relative  = res.bordersNotTouching / denomB;
-
-    return res;
-}
-
-
-inline constexpr BoxPacker_2D::ShapeREC::OverlayRes BoxPacker_2D::ShapeREC::_compute_overlayWith_impl(
-    ShapeREC const &one, ShapeREC const &other) {
-
-    BoxPacker_2D::ShapeREC::OverlayRes res{.ol_shp{BoxPacker_2D::ShapeREC::make(one.m_height, one.m_width)}};
-    size_t const                       h = one.m_height;
-    size_t const                       w = one.m_width;
+    BoxPacker_2D::Shape::OverlayRes res{.ol_shp{BoxPacker_2D::Shape::make(one.m_height, one.m_width)}};
+    size_t const                    h = one.m_height;
+    size_t const                    w = one.m_width;
 
     if (h == 0uz or w == 0uz) { return res; } // Early exit
 
@@ -2077,8 +1472,8 @@ inline constexpr BoxPacker_2D::ShapeREC::OverlayRes BoxPacker_2D::ShapeREC::_com
         }
     }
 
-    ShapeREC touch    = ShapeREC::make(h, w);
-    ShapeREC notTouch = ShapeREC::make(h, w);
+    Shape touch    = Shape::make(h, w);
+    Shape notTouch = Shape::make(h, w);
 
     auto mv_touch    = touch.get_mdspanOfSelf();
     auto mv_notTouch = notTouch.get_mdspanOfSelf();
@@ -2109,9 +1504,9 @@ inline constexpr BoxPacker_2D::ShapeREC::OverlayRes BoxPacker_2D::ShapeREC::_com
         }
     }
 
-    ShapeREC gapPastMemo    = ShapeREC::make(h, w);
-    ShapeREC filledPastMemo = ShapeREC::make(h, w);
-    ShapeREC curMemo        = ShapeREC::make(h, w);
+    Shape gapPastMemo    = Shape::make(h, w);
+    Shape filledPastMemo = Shape::make(h, w);
+    Shape curMemo        = Shape::make(h, w);
 
     auto mv_gapPastMemo    = gapPastMemo.get_mdspanOfSelf();
     auto mv_filledPastMemo = filledPastMemo.get_mdspanOfSelf();
@@ -2195,8 +1590,7 @@ inline constexpr BoxPacker_2D::ShapeREC::OverlayRes BoxPacker_2D::ShapeREC::_com
 }
 
 
-inline constexpr BoxPacker_2D::ShapeREC::OverlayRes BoxPacker_2D::ShapeREC::compute_overlayWith(
-    ShapeREC const &other) const {
+inline constexpr BoxPacker_2D::Shape::OverlayRes BoxPacker_2D::Shape::compute_overlayWith(Shape const &other) const {
 
     // Same case
     if (other.m_height == m_height && other.m_width == m_width) { return _compute_overlayWith_impl(*this, other); }

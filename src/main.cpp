@@ -651,10 +651,10 @@ int main(int, char **) {
                 ImGui::PushID(0);
                 if (ImGui::Button("  ")) {
                     if (shps.m_shapes.size() != 0) {
-                        shps.m_shapes.push_back(incpack::BoxPacker_2D::ShapeREC::make(shps.m_shapes.back().m_height,
+                        shps.m_shapes.push_back(incpack::BoxPacker_2D::Shape::make(shps.m_shapes.back().m_height,
                                                                                       shps.m_shapes.back().m_width));
                     }
-                    else { shps.m_shapes.push_back(incpack::BoxPacker_2D::ShapeREC::make(5, 5)); }
+                    else { shps.m_shapes.push_back(incpack::BoxPacker_2D::Shape::make(5, 5)); }
 
                     oneTree.reqdShapes.push_back(0);
                 }
