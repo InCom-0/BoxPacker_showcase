@@ -4,10 +4,10 @@
 #include <cassert>
 #include <concepts>
 #include <cstddef>
+#include <cstdint>
 #include <deque>
 #include <functional>
 #include <limits>
-#include <mdspan>
 #include <optional>
 #include <ranges>
 #include <tuple>
@@ -341,7 +341,7 @@ public:
 
         template <typename T>
         requires more_concepts::container<T> && more_concepts::container<typename T::value_type>
-        constexpr static auto _get_(T const &VofV) {
+        constexpr static auto _get_maxHeightMaxWidth(T const &VofV) {
             std::pair res{VofV.size(), 0uz};
             res.second =
                 std::ranges::fold_left(std::views::transform(VofV, [](auto const &line) { return line.size(); }), 0uz,
@@ -365,7 +365,7 @@ public:
         template <typename T>
         requires more_concepts::container<T> && more_concepts::container<typename T::value_type>
         static Shape make(T const &VofV) {
-            auto const [height, maxWidth] = _get_(VofV);
+            auto const [height, maxWidth] = _get_maxHeightMaxWidth(VofV);
             Shape res{.m_height = height, .m_width = maxWidth, .m_matrix = matrix_type{}};
             res.m_matrix.reserve(height * maxWidth);
 
@@ -381,7 +381,7 @@ public:
         template <typename T>
         requires more_concepts::container<T> && more_concepts::container<typename T::value_type>
         static Shape make(T const &VofV, size_t const borderThickness) {
-            auto const [height, maxWidth] = _get_(VofV);
+            auto const [height, maxWidth] = _get_maxHeightMaxWidth(VofV);
             size_t const heightInclBorder = (height + (2 * borderThickness));
             size_t const widthInclBorder  = (maxWidth + (2 * borderThickness));
             Shape        res{.m_height = heightInclBorder, .m_width = widthInclBorder, .m_matrix = matrix_type()};
@@ -538,10 +538,25 @@ public:
             return res;
         }
 
+        enum class RotFlip : std::uint32_t {
+            None    = 0,
+            Rot     = (1 << 0),
+            Flip    = (1 << 1),
+            RotFlip = (11 << 0)
+        };
 
-        constexpr std::vector<Shape> compute_alternsRotFlip() const {
-            auto shpCpy         = *this;
-            auto shpCpy_rotated = shpCpy.rotateCopy_left();
+        constexpr std::vector<Shape> compute_alternsRotFlip_dispatch(RotFlip const rf) const {
+            switch (rf) {
+                case RotFlip::RotFlip: return this->compute_alternsRotFlip();
+                case RotFlip::Rot:     return this->compute_alternsRot();
+                case RotFlip::Flip:    return this->compute_alternsFlip();
+                default:               return std::vector<Shape>{*this};
+            }
+            std::unreachable();
+        }
+
+        constexpr std::vector<Shape> compute_alternsRot() const {
+            auto                                                               shpCpy = this->rotateCopy_left();
             ankerl::unordered_dense::set<Shape, standard::hashing::XXH3Hasher> hlprMP;
 
             hlprMP.insert(shpCpy);
@@ -551,14 +566,6 @@ public:
             hlprMP.insert(shpCpy);
             shpCpy.flip_v();
             hlprMP.insert(shpCpy);
-
-            hlprMP.insert(shpCpy_rotated);
-            shpCpy_rotated.flip_v();
-            hlprMP.insert(shpCpy_rotated);
-            shpCpy_rotated.flip_h();
-            hlprMP.insert(shpCpy_rotated);
-            shpCpy_rotated.flip_v();
-            hlprMP.insert(shpCpy_rotated);
 
             return std::vector<Shape>(hlprMP.begin(), hlprMP.end());
         }
@@ -574,6 +581,30 @@ public:
             hlprMP.insert(shpCpy);
             shpCpy.flip_v();
             hlprMP.insert(shpCpy);
+
+            return std::vector<Shape>(hlprMP.begin(), hlprMP.end());
+        }
+
+        constexpr std::vector<Shape> compute_alternsRotFlip() const {
+            auto                                                               shpCpy     = *this;
+            auto                                                               shpCpy_rot = shpCpy.rotateCopy_left();
+            ankerl::unordered_dense::set<Shape, standard::hashing::XXH3Hasher> hlprMP;
+
+            hlprMP.insert(shpCpy);
+            shpCpy.flip_v();
+            hlprMP.insert(shpCpy);
+            shpCpy.flip_h();
+            hlprMP.insert(shpCpy);
+            shpCpy.flip_v();
+            hlprMP.insert(shpCpy);
+
+            hlprMP.insert(shpCpy_rot);
+            shpCpy_rot.flip_v();
+            hlprMP.insert(shpCpy_rot);
+            shpCpy_rot.flip_h();
+            hlprMP.insert(shpCpy_rot);
+            shpCpy_rot.flip_v();
+            hlprMP.insert(shpCpy_rot);
 
             return std::vector<Shape>(hlprMP.begin(), hlprMP.end());
         }
@@ -630,7 +661,7 @@ public:
         // Adds empty 'border' (ie. empty lines around the shape area)
         // Performs m_height += (2-borderThickness), m_width += (2-borderThickness)
         // Note: Adds border even if there already is a 'border' previously
-        void add_border(size_t const borderThickness) {
+        Shape &add_border(size_t const borderThickness) {
             size_t const targetTotalSz =
                 m_matrix.size() + (2 * borderThickness) * ((2 * borderThickness) + m_height + m_width);
             size_t const target_height = m_height + (2 * borderThickness);
@@ -648,6 +679,7 @@ public:
 
             m_height = target_height;
             m_width  = target_width;
+            return *this;
         }
 
 
@@ -849,31 +881,28 @@ public:
 
 public:
     template <size_t N>
-    BoxPacker_2D(size_t const sqsz, size_t const area_ySize, size_t const area_xSize,
+    BoxPacker_2D(size_t const area_ySize, size_t const area_xSize,
                  std::vector<std::array<std::array<bool, N>, N>> const &shps, std::vector<size_t> const &shps_counts,
-                 size_t const firstTile_yPos = 0, size_t const firstTile_xPos = 0, pastResMap_t const &pastReslts = {})
-        : BoxPacker_2D(
-              sqsz, area_ySize, area_xSize,
-              std::views::transform(
-                  shps, [&](auto const &smallerShp) { return Shape::make(smallerShp, 1).compute_alternsRotFlip(); }) |
-                  std::ranges::to<std::vector>(),
-              shps_counts, firstTile_yPos, firstTile_xPos, pastReslts) {}
+                 pastResMap_t const &pastReslts = {})
+        : BoxPacker_2D(area_ySize, area_xSize,
+                       std::views::transform(shps, [&](auto const &smallerShp) { return Shape::make(smallerShp); }) |
+                           std::ranges::to<std::vector>(),
+                       shps_counts, pastReslts) {}
 
     template <size_t N>
-    BoxPacker_2D(size_t const sqsz, size_t const area_ySize, size_t const area_xSize,
+    BoxPacker_2D(size_t const area_ySize, size_t const area_xSize,
                  std::vector<std::vector<std::array<std::array<bool, N>, N>>> const &shpsAltrs,
-                 std::vector<size_t> const &shps_counts, size_t const firstTile_yPos = 0,
-                 size_t const firstTile_xPos = 0, pastResMap_t const &pastReslts = {})
-        : BoxPacker_2D(sqsz, area_ySize, area_xSize,
+                 std::vector<size_t> const &shps_counts, pastResMap_t const &pastReslts = {})
+        : BoxPacker_2D(area_ySize, area_xSize,
                        std::views::transform(shpsAltrs,
                                              [&](auto const &oneShpAltrns) {
                                                  return std::views::transform(
                                                             oneShpAltrns,
-                                                            [&](auto const &item) { return Shape::make(item, 1); }) |
+                                                            [&](auto const &item) { return Shape::make(item); }) |
                                                         std::ranges::to<std::vector>();
                                              }) |
                            std::ranges::to<std::vector>(),
-                       shps_counts, firstTile_yPos, firstTile_xPos, pastReslts) {}
+                       shps_counts, pastReslts) {}
 
     BoxPacker_2D()                     = delete;
     BoxPacker_2D(BoxPacker_2D const &) = delete;
@@ -883,97 +912,136 @@ public:
     BoxPacker_2D &operator=(BoxPacker_2D const &) = delete;
     BoxPacker_2D &operator=(BoxPacker_2D &&)      = default;
 
+    BoxPacker_2D(size_t const area_ySize, size_t const area_xSize, std::vector<std::vector<Shape>> const &shps_alterns,
+                 std::vector<size_t> const &shps_counts, pastResMap_t const &pastResults = {})
+        : m_shapes_alterns([&]() {
+              size_t maxSize{1uz}; // The sizes need to be at least 1uz
 
-    BoxPacker_2D(size_t const sqsz, size_t const area_ySize, size_t const area_xSize,
-                 std::vector<std::vector<Shape>> const &shps_alterns, std::vector<size_t> const &shps_counts,
-                 size_t const firstTile_yPos = 0, size_t const firstTile_xPos = 0, pastResMap_t const &pastReslts = {})
-        : m_sqsz(sqsz), m_shapeOLCount_full((2 * sqsz) - 1), m_shapeOLCount_border((2 * sqsz) - 3),
-          m_shapeOLCount_inside((2 * sqsz) - 5), m_useableCount_perShape(shps_counts),
-          m_area_ySize(area_ySize + (2 * sqsz - 4)), m_area_xSize(area_xSize + (2 * sqsz - 4)),
-          m_area(m_area_ySize * m_area_xSize, 0),
-          m_frontierTiles((area_ySize + 3 - sqsz) * (area_xSize + 3 - sqsz), frontierTilePossibs_t{}),
-          m_frontier_ySz(area_ySize + 1 - m_sqsz), m_frontier_xSz(area_xSize + 1 - m_sqsz),
-          m_firstTilePos(Pos{.y = static_cast<long long>(firstTile_yPos), .x = static_cast<long long>(firstTile_xPos)}),
-          m_shapes_alterns(shps_alterns),
-          m_shapesMaxEmpty(((sqsz - 2) * (sqsz - 2)) -
+              for (auto const &shpAlternLine : shps_alterns) {
+                  for (auto const &shpAlt : shpAlternLine) {
+                      maxSize = std::max(maxSize, shpAlt.m_height);
+                      maxSize = std::max(maxSize, shpAlt.m_width);
+                  }
+              }
+
+              return std::views::transform(shps_alterns,
+                                           [&](auto const &shpAlternLine) {
+                                               return std::views::transform(shpAlternLine,
+                                                                            [&](auto const &oneAltern) {
+                                                                                Shape res = oneAltern;
+                                                                                if (res.m_height != maxSize ||
+                                                                                    res.m_width != maxSize) {
+                                                                                    res.resize_safe(maxSize, maxSize);
+                                                                                }
+                                                                                res.add_border(1);
+                                                                                return res;
+                                                                            }) |
+                                                      std::ranges::to<std::vector>();
+                                           }) |
+                     std::ranges::to<std::vector>();
+          }()),
+          m_sqsz(std::ranges::fold_left(
+              std::views::transform(m_shapes_alterns,
+                                    [](auto const &shpAlternLine) {
+                                        return shpAlternLine.size() == 0 ? 0uz : shpAlternLine.front().m_height;
+                                    }),
+              0uz, [](size_t init, size_t oneMaxSize) { return std::max(init, oneMaxSize); })),
+
+          m_area_ySize(area_ySize + (2 * m_sqsz - 4)), m_area_xSize(area_xSize + (2 * m_sqsz - 4)),
+          m_area(m_area_ySize * m_area_xSize, 0), m_frontier_ySz(area_ySize + 1 - m_sqsz),
+          m_frontier_xSz(area_xSize + 1 - m_sqsz),
+          m_frontierTiles(m_frontier_ySz * m_frontier_xSz, frontierTilePossibs_t{}),
+
+          m_shapesMaxEmpty(((m_sqsz - 2) * (m_sqsz - 2)) -
                            [&] {
-                               auto filledCounts = std::views::transform(m_shapes_alterns, [](auto &vecOfAlterns) {
-                                   return vecOfAlterns.empty() ? size_t{0}
+                               auto filledCounts = std::views::transform(m_shapes_alterns, [&](auto &vecOfAlterns) {
+                                   return vecOfAlterns.empty() ? ((m_sqsz - 2) * (m_sqsz - 2))
                                                                : vecOfAlterns.front().count_filledBorderLess();
                                });
 
-                               auto       first = std::ranges::begin(filledCounts);
-                               auto const last  = std::ranges::end(filledCounts);
-                               if (first == last) { return size_t{0}; }
-
                                return std::ranges::fold_left(
-                                   filledCounts, std::numeric_limits<size_t>::max(),
+                                   filledCounts, ((m_sqsz - 2uz) * (m_sqsz - 2uz)),
                                    [](size_t init, size_t oneFilledCount) { return std::min(init, oneFilledCount); });
                            }()),
-          m_pastComputed(pastReslts) {
+          m_useableCount_perShape(std::views::take(shps_counts, std::min(shps_counts.size(), shps_alterns.size())) |
+                                  std::ranges::to<std::vector>()),
+          m_shapesRatios_orig(
+              std::views::transform(m_useableCount_perShape,
+                                    [sum = std::max(static_cast<double>(std::ranges::fold_left(m_useableCount_perShape,
+                                                                                               size_t{0}, std::plus{})),
+                                                    1.0)](size_t oneCount) { return oneCount / sum; }) |
+              std::ranges::to<std::vector>()),
+          m_pastComputed(pastResults) {
+
         assert(m_sqsz > 2);
 
-        {
-            auto area_view = polyfills::mdspan<unsigned char, polyfills::dextents<size_t, 2>>(
-                m_area.data(), m_area_ySize, m_area_xSize);
-
-            for (size_t const rowID : {0uz, m_area_ySize - 1uz}) {
-                for (size_t colID = 0; colID < m_area_xSize; ++colID) { area_view[rowID, colID] = 1; }
-            }
-            for (size_t rowID = 1; rowID < (m_area_ySize - 1); ++rowID) {
-                for (size_t const colID : {0uz, m_area_xSize - 1uz}) { area_view[rowID, colID] = 1; }
-            }
-        }
+        reset_area();
 
         m_useableCount_perShape.resize(m_shapes_alterns.size(), 0);
 
-        auto ratiosHlprView = std::views::transform(
-            m_useableCount_perShape,
-            [sum = static_cast<double>(std::ranges::fold_left(m_useableCount_perShape, size_t{0}, std::plus{}))](
-                size_t oneCount) { return oneCount / std::max(sum, 1.0); });
-
-        m_shapesRatios_orig = decltype(m_shapesRatios_orig)(ratiosHlprView.begin(), ratiosHlprView.end());
-
-        auto const ftPos = Pos{.y = static_cast<long long>(std::min(firstTile_yPos, area_ySize - m_sqsz)),
-                               .x = static_cast<long long>(std::min(firstTile_xPos, area_xSize - m_sqsz))};
-
-        auto &ft_possibs = getOrCompute_possibsFor(get_windowAtPos(ftPos).value());
-        m_frontierTiles.at((ftPos.y * m_area_xSize) + ftPos.x) = std::ref(ft_possibs);
         prime_fprng();
     }
+    BoxPacker_2D(size_t const area_ySize, size_t const area_xSize, std::vector<Shape> const &shps,
+                 std::vector<size_t> const &shps_counts,
+                 Shape::RotFlip const shpsAlternsMethod = Shape::RotFlip::RotFlip, pastResMap_t const &pastResults = {})
+        : BoxPacker_2D(
+              area_ySize, area_xSize,
+              [&]() {
+                  size_t maxSize{1uz}; // The sizes need to be at least 1uz
+                  for (auto const &shpAlt : shps) {
+                      maxSize = std::max(maxSize, shpAlt.m_height);
+                      maxSize = std::max(maxSize, shpAlt.m_width);
+                  }
+
+                  return std::views::transform(shps,
+                                               [&](auto const &oneShp) {
+                                                   Shape shpCpy = oneShp;
+                                                   if (shpCpy.m_height != maxSize || shpCpy.m_width != maxSize) {
+                                                       shpCpy.resize_safe(maxSize, maxSize);
+                                                   }
+                                                   shpCpy.add_border(1);
+
+                                                   return shpCpy.compute_alternsRotFlip_dispatch(shpsAlternsMethod);
+                                               }) |
+                         std::ranges::to<std::vector>();
+              }(),
+              shps_counts, pastResults) {}
 
 private:
-    size_t m_sqsz                = 0; // This is for 'Shapes' used by the BoxPacker
-    size_t m_shapeOLCount_full   = 0;
-    size_t m_shapeOLCount_border = 0;
-    size_t m_shapeOLCount_inside = 0;
+    std::vector<std::vector<Shape>> m_shapes_alterns;
+
+    size_t m_sqsz                = 0uz; // This is for 'Shapes' used by the BoxPacker
+    size_t m_shapeOLCount_full   = (2 * m_sqsz) - 1;
+    size_t m_shapeOLCount_border = m_shapeOLCount_full - 2;
+    size_t m_shapeOLCount_inside = m_shapeOLCount_full - 4;
 
     size_t                     m_area_ySize;
     size_t                     m_area_xSize;
     std::vector<unsigned char> m_area;
-    size_t                     m_placedShapes = 0uz;
 
-    Pos                             m_firstTilePos;
-    std::vector<std::vector<Shape>> m_shapes_alterns;
-    size_t                          m_shapesMaxEmpty = 0;
+    size_t                             m_frontier_ySz;
+    size_t                             m_frontier_xSz;
+    std::vector<frontierTilePossibs_t> m_frontierTiles{(m_area_ySize + 3 - m_sqsz) * (m_area_xSize + 3 - m_sqsz),
+                                                       frontierTilePossibs_t{}};
+
+
+    size_t m_shapesMaxEmpty = 0;
 
     std::vector<size_t>                       m_useableCount_perShape;
     std::vector<double>                       m_shapesRatios_orig;
     incom::standard::random::FastPseudoRandom m_fprng;
 
-    pastResMap_t                       m_pastComputed;
-    std::deque<Pos>                    m_uncoverableFrontierPoss;
-    std::vector<frontierTilePossibs_t> m_frontierTiles;
-    size_t                             m_frontier_ySz;
-    size_t                             m_frontier_xSz;
+    size_t          m_placedShapes            = 0uz;
+    pastResMap_t    m_pastComputed            = {};
+    std::deque<Pos> m_uncoverableFrontierPoss = {};
 
 
 public:
-    auto get_mdspanOfArea() const {
+    polyfills::mdspan<const unsigned char, polyfills::dextents<size_t, 2>> get_mdspanOfArea() const {
         return polyfills::mdspan<const unsigned char, polyfills::dextents<size_t, 2>>(m_area.data(), m_area_ySize,
                                                                                       m_area_xSize);
     }
-    auto get_mdspanOfArea() {
+    polyfills::mdspan<unsigned char, polyfills::dextents<size_t, 2>> get_mdspanOfArea() {
         return polyfills::mdspan<unsigned char, polyfills::dextents<size_t, 2>>(m_area.data(), m_area_ySize,
                                                                                 m_area_xSize);
     }
@@ -1005,7 +1073,8 @@ public:
     std::pair<size_t, size_t> get_areaSize() const { return {m_area_ySize, m_area_xSize}; }
 
     std::pair<size_t, size_t> get_areaSize_borderless() const {
-        return {m_area_ySize > 0 ? m_area_ySize - 1U : 0U, (m_area_xSize > 0 ? m_area_xSize - 1U : 0U)};
+        return {m_area_ySize > (2 * m_sqsz - 4) ? m_area_ySize - (2 * m_sqsz - 4) : 0U,
+                (m_area_xSize > (2 * m_sqsz - 4) ? m_area_xSize - (2 * m_sqsz - 4) : 0U)};
     }
 
     std::pair<size_t, size_t> get_emptyFilled() const noexcept {
@@ -1026,14 +1095,12 @@ public:
 public:
     BoxPacker_2D clone_keepShapeData(std::vector<size_t> const &shps_counts) const {
         auto const [rDim, cDim] = get_areaSize_borderless();
-        return BoxPacker_2D(m_sqsz, rDim, cDim, m_shapes_alterns, shps_counts, m_firstTilePos.y, m_firstTilePos.x,
-                            m_pastComputed);
+        return BoxPacker_2D(rDim, cDim, m_shapes_alterns, shps_counts, m_pastComputed);
     }
 
     BoxPacker_2D clone_keepShapeData(size_t const area_ySize, size_t const area_xSize,
                                      std::vector<size_t> const &shps_counts) const {
-        return BoxPacker_2D(m_sqsz, area_ySize, area_xSize, m_shapes_alterns, shps_counts, m_firstTilePos.y,
-                            m_firstTilePos.x, {});
+        return BoxPacker_2D(area_ySize, area_xSize, m_shapes_alterns, shps_counts, m_pastComputed);
     }
 
     void reset_allButNotPastComputed(std::vector<size_t> const &shps_counts) {
@@ -1094,27 +1161,26 @@ public:
     }
 
     void reset_frontier() {
-        auto firstTile = get_windowAtPos(m_firstTilePos).value();
         m_frontier_ySz = (m_area_ySize + 1 - m_sqsz);
         m_frontier_xSz = (m_area_xSize + 1 - m_sqsz);
 
         m_frontierTiles.resize(m_frontier_ySz * m_frontier_xSz);
 
         std::ranges::fill(m_frontierTiles, std::nullopt);
-
-        // TODO: Delete the line below once verified working
-        m_frontierTiles.at((m_firstTilePos.y * m_area_xSize + m_firstTilePos.x)) =
-            std::ref(getOrCompute_possibsFor(firstTile));
     }
 
     void reset_frontier(Pos const &firstTilePos) {
+        reset_frontier();
+
         auto const ftPos =
             Pos{.y = static_cast<long long>(std::min(firstTilePos.y, static_cast<long long>(m_area_ySize - m_sqsz))),
                 .x = static_cast<long long>(std::min(firstTilePos.x, static_cast<long long>(m_area_xSize - m_sqsz)))};
-        m_firstTilePos = ftPos;
-        reset_frontier();
+
+        auto firstTile                                         = get_windowAtPos(ftPos).value();
+        m_frontierTiles.at((ftPos.y * m_area_xSize + ftPos.x)) = std::ref(getOrCompute_possibsFor(firstTile));
     }
 
+    // UNIMPLEMENTED
     void reset_frontier(std::vector<Pos> const &) noexcept {}
 
     void reset_useableShapeCounts(std::vector<size_t> const &shps_counts) {
@@ -1136,16 +1202,17 @@ public:
 
 
     bool add_toFrontier(Pos const &onePos) {
-        bool res    = true;
-        auto window = get_windowAtPos(onePos);
-        if (! window.has_value() || window.value().count_filledBorderLess<1uz>() > m_shapesMaxEmpty) { res = false; }
-        else {
+        auto const window = get_windowAtPos(onePos);
+        // If the window is has more filled spaces than maximum available empty spaces of any shape => nothing can be
+        // placed here
+        if (window.has_value() && window.value().count_filledBorderLess<1uz>() <= m_shapesMaxEmpty) {
             auto &possibsForWindow = getOrCompute_possibsFor(window.value());
             if (possibsForWindow.size() > 0) {
                 m_frontierTiles.at((onePos.y * m_frontier_xSz) + onePos.x) = std::ref(possibsForWindow);
+                return true;
             }
         }
-        return res;
+        return false;
     }
 
 
@@ -1538,8 +1605,6 @@ private:
         XXH3_64bits_update(state, &m_sqsz, sizeof(size_t));
         XXH3_64bits_update(state, &m_area_ySize, sizeof(size_t));
         XXH3_64bits_update(state, &m_area_xSize, sizeof(size_t));
-        XXH3_64bits_update(state, &m_firstTilePos.y, sizeof(long long));
-        XXH3_64bits_update(state, &m_firstTilePos.x, sizeof(long long));
 
         for (auto const &alternsLine : m_shapes_alterns) {
             for (auto const &shp : alternsLine) { XXH3Hash(shp, state); }
@@ -1581,17 +1646,6 @@ public:
 // ##################################
 // ### IMPLEMENTATIONS
 // ##################################
-
-
-// UNIMPLEMENTED
-// inline bool BoxPacker_2D::ShapeREC::_change_size_withoutBorder(size_t const tarHeight, size_t const tarWidth) {
-
-//     m_height = tarHeight;
-//     m_width  = tarWidth;
-//     return true;
-// }
-
-// Downsizes just the 'inner' part of the shape (that is without border)
 
 
 } // namespace packing

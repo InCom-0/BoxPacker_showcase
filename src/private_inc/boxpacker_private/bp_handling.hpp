@@ -291,7 +291,7 @@ inline std::tuple<std::string, ShapesStorage, std::vector<Tree>> parse_inputData
     }
     for (auto &shp : tempShapes) {
         while (shp.size() < desiredSqsz) { shp.emplace_back(desiredSqsz, 0); }
-        shps.m_shapes.push_back(BP_Shape::make(shp, 1));
+        shps.m_shapes.push_back(BP_Shape::make(shp));
     }
 
     return res;
@@ -328,8 +328,7 @@ inline constexpr auto bp_asyncExecute =
        moodycamel::ReaderWriterQueue<std::tuple<size_t, incpack::BoxPacker_2D::Pos, BP_PastRes>> &q)
     -> exec::basic_task<void, experimental::execution::__task::inline_task_context<void>> {
     co_await stdexec::schedule(sch);
-    incpack::BoxPacker_2D solver(shpsToUse.front().front().m_height, trees.front().yDim, trees.front().xDim, shpsToUse,
-                                 trees.front().reqdShapes);
+    incpack::BoxPacker_2D solver(trees.front().yDim, trees.front().xDim, shpsToUse, trees.front().reqdShapes);
 
     auto stopTokOpt = co_await stdexec::stopped_as_optional(stdexec::get_stop_token());
 
