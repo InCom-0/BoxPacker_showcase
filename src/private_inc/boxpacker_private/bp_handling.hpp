@@ -26,6 +26,7 @@
 
 
 namespace incom::box_packer {
+using namespace incom::standard;
 
 namespace incpack = incom::standard::solvers_TEMP::packing;
 using BP_Pos      = incpack::BoxPacker_2D::Pos;
@@ -132,12 +133,12 @@ struct SolveResStore {
 
 
     auto get_mdspan_areaTree(size_t const id) {
-        return incpack::BoxPacker_2D::pf_mdspan<std::uint8_t, incpack::BoxPacker_2D::pf_dextents<size_t, 2>>(
-            m_reaAreaMaps.at(id).data(), m_trees.at(id).yDim + (2 * m_sqsz - 4),
-            m_trees.at(id).xDim + (2 * m_sqsz - 4));
+        return polyfills::mdspan<std::uint8_t, polyfills::dextents<size_t, 2>>(m_reaAreaMaps.at(id).data(),
+                                                                               m_trees.at(id).yDim + (2 * m_sqsz - 4),
+                                                                               m_trees.at(id).xDim + (2 * m_sqsz - 4));
     }
     auto get_mdspan_areaTree(size_t const id) const {
-        return incpack::BoxPacker_2D::pf_mdspan<const std::uint8_t, incpack::BoxPacker_2D::pf_dextents<size_t, 2>>(
+        return polyfills::mdspan<const std::uint8_t, polyfills::dextents<size_t, 2>>(
             m_reaAreaMaps.at(id).data(), m_trees.at(id).yDim + (2 * m_sqsz - 4),
             m_trees.at(id).xDim + (2 * m_sqsz - 4));
     }
@@ -146,31 +147,28 @@ struct SolveResStore {
         using Self = std::remove_reference_t<decltype(self)>;
         using Elem = std::conditional_t<std::is_const_v<Self>, const std::uint8_t, std::uint8_t>;
 
-        auto whole = incpack::BoxPacker_2D::pf_mdspan<Elem, incpack::BoxPacker_2D::pf_dextents<size_t, 2>>(
+        auto whole = polyfills::mdspan<Elem, polyfills::dextents<size_t, 2>>(
             self.m_reaAreaMaps.at(id).data(), self.m_trees.at(id).yDim + (2 * self.m_sqsz - 4),
             self.m_trees.at(id).xDim + (2 * self.m_sqsz - 4));
 
-        auto rrr = incpack::BoxPacker_2D::pf_submdspan(
+        return polyfills::submdspan(
             whole, std::pair{self.m_sqsz - 2, self.m_trees.at(id).yDim + (2 * self.m_sqsz - 4) - (self.m_sqsz - 2)},
             std::pair{self.m_sqsz - 2, self.m_trees.at(id).xDim + (2 * self.m_sqsz - 4) - (self.m_sqsz - 2)});
-        return rrr;
     }
 
     auto get_mdspans_areasTrees() {
-        return std::vector(
-            std::from_range,
-            std::views::transform(std::views::zip(m_reaAreaMaps, m_trees), [this](auto const &onePair) {
-                return incpack::BoxPacker_2D::pf_mdspan<std::uint8_t, incpack::BoxPacker_2D::pf_dextents<size_t, 2>>(
-                    std::get<0>(onePair).data(), std::get<1>(onePair).yDim + (2 * m_sqsz - 4),
-                    std::get<1>(onePair).xDim + (2 * m_sqsz - 4));
-            }));
+        return std::vector(std::from_range,
+                           std::views::transform(std::views::zip(m_reaAreaMaps, m_trees), [this](auto const &onePair) {
+                               return polyfills::mdspan<std::uint8_t, polyfills::dextents<size_t, 2>>(
+                                   std::get<0>(onePair).data(), std::get<1>(onePair).yDim + (2 * m_sqsz - 4),
+                                   std::get<1>(onePair).xDim + (2 * m_sqsz - 4));
+                           }));
     }
 
     auto get_mdspans_areasTrees() const {
         return std::vector(std::from_range,
                            std::views::transform(std::views::zip(m_reaAreaMaps, m_trees), [this](auto const &onePair) {
-                               return incpack::BoxPacker_2D::pf_mdspan<const std::uint8_t,
-                                                                       incpack::BoxPacker_2D::pf_dextents<size_t, 2>>(
+                               return polyfills::mdspan<const std::uint8_t, polyfills::dextents<size_t, 2>>(
                                    std::get<0>(onePair).data(), std::get<1>(onePair).yDim + 2,
                                    std::get<1>(onePair).xDim + 2);
                            }));

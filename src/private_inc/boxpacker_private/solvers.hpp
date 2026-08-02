@@ -50,30 +50,6 @@ inline constexpr auto pf_views_stride = __strided_view{};
 
 class BoxPacker_2D {
 public:
-#if defined(INCSTD_MDSPAN_UNDER_KOKKOS)
-    template <class IndexType, size_t Rank>
-    using pf_dextents = Kokkos::dextents<IndexType, Rank>;
-
-    template <class ElementType, class Extents>
-    using pf_mdspan = Kokkos::mdspan<ElementType, Extents>;
-
-    template <class... Args>
-    static constexpr decltype(auto) pf_submdspan(Args &&...args) {
-        return Kokkos::submdspan(std::forward<Args>(args)...);
-    }
-#else
-    template <class IndexType, size_t Rank>
-    using pf_dextents = std::dextents<IndexType, Rank>;
-
-    template <class ElementType, class Extents>
-    using pf_mdspan = std::mdspan<ElementType, Extents>;
-
-    template <class... Args>
-    static constexpr decltype(auto) pf_submdspan(Args &&...args) {
-        return std::submdspan(std::forward<Args>(args)...);
-    }
-#endif
-
     // Forward declarations
     struct Pos;
     struct AlternID;
@@ -106,33 +82,278 @@ public:
         using value_type  = unsigned char;
         using matrix_type = std::vector<value_type>;
 
-        using OverlayRes = __OverlayRes;
+        using Overlay = __OverlayRes;
 
         size_t      m_height = 0uz;
         size_t      m_width  = 0uz;
         matrix_type m_matrix;
 
+        auto operator<=>(Shape const &other) const = default;
+        auto get_mdspanOfSelf() const {
+            return polyfills::mdspan<const unsigned char, polyfills::dextents<size_t, 2>>(m_matrix.data(), m_height,
+                                                                                          m_width);
+        }
+        auto get_mdspanOfSelf() {
+            return polyfills::mdspan<unsigned char, polyfills::dextents<size_t, 2>>(m_matrix.data(), m_height, m_width);
+        }
+
     private:
         // bool _upsize(std::optional<size_t> const tarHeight, std::optional<size_t> const tarWidth);
         // bool _downsize(std::optional<size_t> const tarHeight, std::optional<size_t> const tarWidth);
         // bool _change_size_withoutBorder(size_t const tarHeight, size_t const tarWidth);
-        bool _resize_withBorder(size_t const tarHeight, size_t const tarWidth, size_t const borderThickness);
+        bool _resize_withBorder(size_t const tarHeight, size_t const tarWidth, size_t const borderThickness) {
+            long long const rowDelta     = static_cast<long long>(tarHeight) - static_cast<long long>(m_height);
+            long long const colDelta     = static_cast<long long>(tarWidth) - static_cast<long long>(m_width);
+            auto            row_startEnd = std::pair{borderThickness, m_height - borderThickness};
+            auto            col_startEnd = std::pair{borderThickness, m_width - borderThickness};
 
-        static constexpr OverlayRes _compute_overlayWith_impl(Shape const &self_adj, Shape const &other);
+            // Rows: We only do the following if we are trying to remove rows
+            if (rowDelta < 0) {
+                auto rd_loc = rowDelta;
+                // Rows: Can remove from the end?
+                for (long long skip                     = (static_cast<long long>(m_matrix.size()) -
+                                                           static_cast<long long>((borderThickness + 1) * m_width)) +
+                                                          static_cast<long long>(borderThickness);
+                     (skip > 0ll && rd_loc != 0); skip -= m_width) {
+                    if (std::ranges::all_of(std::views::drop(m_matrix, skip) |
+                                                std::views::take(m_width - (2 * borderThickness)),
+                                            [](auto const chr) { return chr == 0; })) {
+                        row_startEnd.second--;
+                        rd_loc++;
+                    }
+                    // We break only if we can't remove all we need from the end, we shall try from the beginning
+                    else { break; }
+                }
+                // Rows: Can remove from the beginning?
+                for (size_t skip                                    = (borderThickness * m_width) + borderThickness;
+                     (skip < m_matrix.size() && rd_loc != 0); skip += m_width) {
+                    if (std::ranges::all_of(std::views::drop(m_matrix, skip) |
+                                                std::views::take(m_width - (2 * borderThickness)),
+                                            [](auto const chr) { return chr == 0; })) {
+                        row_startEnd.first++;
+                        rd_loc++;
+                    }
+                    // We cannot safely resize (downsize) because each row has some data
+                    else { return false; }
+                }
+            }
+
+            // Cols: We only do the following if we are trying to remove cols
+            if (colDelta < 0) {
+                auto cd_loc = colDelta;
+                // Cols: Can remove from the end?
+                for (size_t dropAdj = borderThickness + 1; (dropAdj < m_width && cd_loc != 0); ++dropAdj) {
+                    if (std::ranges::all_of(
+                            detail::pf_views_stride(std::views::drop(m_matrix, m_width - dropAdj), m_width),
+                            [](auto const chr) { return chr == 0; })) {
+                        col_startEnd.second--;
+                        cd_loc++;
+                    }
+                    else {
+                        break;
+                    } // We break only if we can't remove all we need from the end, we shall try from the beginning
+                }
+
+                // Cols: Can remove from the beginning?
+                for (size_t dropAdj = borderThickness; (dropAdj < m_width && cd_loc != 0); ++dropAdj) {
+                    if (std::ranges::all_of(detail::pf_views_stride(std::views::drop(m_matrix, dropAdj), m_width),
+                                            [](auto const chr) { return chr == 0; })) {
+                        col_startEnd.first++;
+                        cd_loc++;
+                    }
+                    else { return false; }
+                }
+            }
+
+            size_t const tarItemCount = tarHeight * tarWidth;
+            if (tarItemCount <= m_matrix.size()) {
+                for (size_t curRow = 0; curRow < (row_startEnd.second - row_startEnd.first); ++curRow) {
+
+                    std::ranges::rotate(
+                        m_matrix.begin() + ((curRow + borderThickness) * tarWidth) + borderThickness,
+                        m_matrix.begin() + (((row_startEnd.first + curRow) * m_width) + (col_startEnd.first)),
+                        m_matrix.begin() + (((row_startEnd.first + curRow) * m_width) + (col_startEnd.second)));
+                }
+                m_matrix.resize(tarItemCount);
+            }
+
+            // tarItemCount > m_matrix_size =>
+            else {
+                while (m_matrix.size() < tarItemCount) { m_matrix.push_back(0); }
+
+                long long const rd_floored = std::max(0ll, rowDelta);
+                long long const cd_floored = std::max(0ll, colDelta);
+
+                for (size_t curRow = 0; curRow < (row_startEnd.second - row_startEnd.first); ++curRow) {
+                    std::ranges::rotate(
+                        m_matrix.rbegin() + ((curRow + borderThickness + rd_floored) * tarWidth) + borderThickness +
+                            cd_floored,
+                        m_matrix.rbegin() +
+                            (tarItemCount - (((row_startEnd.second - 1 - curRow) * m_width) + (col_startEnd.second))),
+                        m_matrix.rbegin() +
+                            (tarItemCount - (((row_startEnd.second - 1 - curRow) * m_width) + (col_startEnd.first))));
+                }
+            }
+
+            m_height = tarHeight;
+            m_width  = tarWidth;
+            return true;
+        }
+
+        constexpr Overlay _compute_overlayWith_impl(Shape const &other) const {
+            Shape const &one = *this;
+
+            BoxPacker_2D::Shape::Overlay res{.ol_shp{BoxPacker_2D::Shape::make(one.m_height, one.m_width)}};
+            size_t const                 h = one.m_height;
+            size_t const                 w = one.m_width;
+
+            if (h == 0uz or w == 0uz) { return res; } // Early exit
+
+            auto const mv       = one.get_mdspanOfSelf();
+            auto const mv_other = other.get_mdspanOfSelf();
+            auto const mv_res   = res.ol_shp.get_mdspanOfSelf();
+
+
+            for (size_t r = 0; r < h; ++r) {
+                for (size_t c = 0; c < w; ++c) {
+                    res.pointsOverlaid += (mv[r, c] != 0) && (mv_other[r, c] != 0);
+                    res.pointsAdded    += (mv[r, c] == 0) && (mv_other[r, c] != 0);
+                    mv_res[r, c]        = (mv[r, c] != 0 || mv_other[r, c] != 0) ? 1 : 0;
+                }
+            }
+
+            Shape touch    = Shape::make(h, w);
+            Shape notTouch = Shape::make(h, w);
+
+            auto mv_touch    = touch.get_mdspanOfSelf();
+            auto mv_notTouch = notTouch.get_mdspanOfSelf();
+
+            for (size_t r = 1; r < h - 1; ++r) {
+                for (size_t c = 1; c < w - 1; ++c) {
+                    if (mv_other[r, c] == 0) { continue; }
+
+                    res.bordersTouching += (mv[r - 1, c] != 0) && (mv_other[r - 1, c] == 0);
+                    res.bordersTouching += (mv[r, c - 1] != 0) && (mv_other[r, c - 1] == 0);
+                    res.bordersTouching += (mv[r, c + 1] != 0) && (mv_other[r, c + 1] == 0);
+                    res.bordersTouching += (mv[r + 1, c] != 0) && (mv_other[r + 1, c] == 0);
+
+                    mv_touch[r - 1, c] |= (mv[r - 1, c] != 0) && (mv_other[r - 1, c] == 0);
+                    mv_touch[r, c - 1] |= (mv[r, c - 1] != 0) && (mv_other[r, c - 1] == 0);
+                    mv_touch[r, c + 1] |= (mv[r, c + 1] != 0) && (mv_other[r, c + 1] == 0);
+                    mv_touch[r + 1, c] |= (mv[r + 1, c] != 0) && (mv_other[r + 1, c] == 0);
+
+                    res.bordersNotTouching += (mv[r - 1, c] == 0) && (mv_other[r - 1, c] == 0);
+                    res.bordersNotTouching += (mv[r, c - 1] == 0) && (mv_other[r, c - 1] == 0);
+                    res.bordersNotTouching += (mv[r, c + 1] == 0) && (mv_other[r, c + 1] == 0);
+                    res.bordersNotTouching += (mv[r + 1, c] == 0) && (mv_other[r + 1, c] == 0);
+
+                    mv_notTouch[r - 1, c] |= (mv[r - 1, c] == 0) && (mv_other[r - 1, c] == 0);
+                    mv_notTouch[r, c - 1] |= (mv[r, c - 1] == 0) && (mv_other[r, c - 1] == 0);
+                    mv_notTouch[r, c + 1] |= (mv[r, c + 1] == 0) && (mv_other[r, c + 1] == 0);
+                    mv_notTouch[r + 1, c] |= (mv[r + 1, c] == 0) && (mv_other[r + 1, c] == 0);
+                }
+            }
+
+            Shape gapPastMemo    = Shape::make(h, w);
+            Shape filledPastMemo = Shape::make(h, w);
+            Shape curMemo        = Shape::make(h, w);
+
+            auto mv_gapPastMemo    = gapPastMemo.get_mdspanOfSelf();
+            auto mv_filledPastMemo = filledPastMemo.get_mdspanOfSelf();
+            auto mv_curMemo        = curMemo.get_mdspanOfSelf();
+
+            Pos curPos{.y = 0, .x = 0};
+
+            auto gapsRecLambda = [&](this auto const &self) -> bool {
+                if (mv_res[curPos.y, curPos.x] != 0) { return true; }
+                if (mv_curMemo[curPos.y, curPos.x] != 0) { return true; }
+                mv_curMemo[curPos.y, curPos.x] = 1;
+
+                if (mv_gapPastMemo[curPos.y, curPos.x] != 0) { return false; }
+                mv_gapPastMemo[curPos.y, curPos.x] = 1;
+
+                for (auto const &[row, col] : explorers::directions::get_dirChanges_2D()) {
+                    if (curPos.y + row < 0 || curPos.y + row >= static_cast<long long>(h) || curPos.x + col < 0 ||
+                        curPos.x + col >= static_cast<long long>(w)) {
+                        continue;
+                    }
+                    curPos.y += row;
+                    curPos.x += col;
+                    if (! self()) { return false; }
+                    curPos.y -= row;
+                    curPos.x -= col;
+                }
+                return true;
+            };
+
+            auto filledRecLambda = [&](this auto const &self) -> bool {
+                if (mv_res[curPos.y, curPos.x] == 0) { return true; }
+                if (mv_curMemo[curPos.y, curPos.x] != 0) { return true; }
+                mv_curMemo[curPos.y, curPos.x] = 1;
+
+                if (mv_filledPastMemo[curPos.y, curPos.x] != 0) { return false; }
+                mv_filledPastMemo[curPos.y, curPos.x] = 1;
+
+                for (auto const &[row, col] : explorers::directions::get_dirChanges_2D()) {
+                    if (curPos.y + row < 0 || curPos.y + row >= static_cast<long long>(h) || curPos.x + col < 0 ||
+                        curPos.x + col >= static_cast<long long>(w)) {
+                        continue;
+                    }
+                    curPos.y += row;
+                    curPos.x += col;
+                    if (! self()) { return false; }
+                    curPos.y -= row;
+                    curPos.x -= col;
+                }
+                return true;
+            };
+
+            for (size_t r = 0; r < h; ++r) {
+                for (size_t c = 0; c < w; ++c) {
+                    if (mv_res[r, c] == 0 && mv_gapPastMemo[r, c] == 0) {
+                        curPos.y = static_cast<long long>(r);
+                        curPos.x = static_cast<long long>(c);
+                        curMemo.reset();
+                        res.gapsCount += gapsRecLambda();
+                    }
+                    if (mv_res[r, c] != 0 && mv_filledPastMemo[r, c] == 0) {
+                        curPos.y = static_cast<long long>(r);
+                        curPos.x = static_cast<long long>(c);
+                        curMemo.reset();
+                        res.shapesCount += filledRecLambda();
+                    }
+                }
+            }
+
+            res.pointsTouching    = touch.count_filled();
+            res.pointsNotTouching = notTouch.count_filled();
+            double const denomP   = std::max(static_cast<double>(res.pointsTouching + res.pointsNotTouching), 1.0);
+            double const denomB   = std::max(static_cast<double>(res.bordersTouching + res.bordersNotTouching), 1.0);
+
+            res.surfacePointsCovered_relative = res.pointsTouching / denomP;
+            res.surfacePointsOpened_relative  = res.pointsNotTouching / denomP;
+
+            res.surfaceCovered_relative = res.bordersTouching / denomB;
+            res.surfaceOpened_relative  = res.bordersNotTouching / denomB;
+
+            return res;
+        }
 
         template <typename T>
         requires more_concepts::container<T> && more_concepts::container<typename T::value_type>
-        constexpr static auto _verify_VofV_ctor(T const &VofV);
+        constexpr static auto _get_(T const &VofV) {
+            std::pair res{VofV.size(), 0uz};
+            res.second =
+                std::ranges::fold_left(std::views::transform(VofV, [](auto const &line) { return line.size(); }), 0uz,
+                                       [&](auto &&init, auto const &oneLen) {
+                                           if (init != res.second) { res.second = false; }
+                                           return std::max(init, oneLen);
+                                       });
+
+            return res;
+        }
 
     public:
-        auto operator<=>(Shape const &other) const = default;
-        auto get_mdspanOfSelf() const {
-            return pf_mdspan<const unsigned char, pf_dextents<size_t, 2>>(m_matrix.data(), m_height, m_width);
-        }
-        auto get_mdspanOfSelf() {
-            return pf_mdspan<unsigned char, pf_dextents<size_t, 2>>(m_matrix.data(), m_height, m_width);
-        }
-
         static Shape make(size_t const sqsz) {
             return Shape{.m_height = sqsz, .m_width = sqsz, .m_matrix = matrix_type(sqsz * sqsz, 0)};
         }
@@ -144,7 +365,7 @@ public:
         template <typename T>
         requires more_concepts::container<T> && more_concepts::container<typename T::value_type>
         static Shape make(T const &VofV) {
-            auto const [height, maxWidth] = _verify_VofV_ctor(VofV);
+            auto const [height, maxWidth] = _get_(VofV);
             Shape res{.m_height = height, .m_width = maxWidth, .m_matrix = matrix_type{}};
             res.m_matrix.reserve(height * maxWidth);
 
@@ -160,7 +381,7 @@ public:
         template <typename T>
         requires more_concepts::container<T> && more_concepts::container<typename T::value_type>
         static Shape make(T const &VofV, size_t const borderThickness) {
-            auto const [height, maxWidth] = _verify_VofV_ctor(VofV);
+            auto const [height, maxWidth] = _get_(VofV);
             size_t const heightInclBorder = (height + (2 * borderThickness));
             size_t const widthInclBorder  = (maxWidth + (2 * borderThickness));
             Shape        res{.m_height = heightInclBorder, .m_width = widthInclBorder, .m_matrix = matrix_type()};
@@ -213,12 +434,12 @@ public:
 
         bool has_sameSizeAs(Shape const &other) { return ((m_height == other.m_height) && (m_width == other.m_width)); }
 
-        size_t count_filled() const {
+        constexpr size_t count_filled() const {
             return std::ranges::count_if(m_matrix, [](auto oneCell) { return oneCell != 0; });
         }
 
         template <size_t borderThickness_c = 0uz>
-        size_t count_filledBorderLess() const {
+        constexpr size_t count_filledBorderLess() const {
             size_t count      = 0;
             auto   matrixView = get_mdspanOfSelf();
             for (size_t r = borderThickness_c; r < (m_height - borderThickness_c); ++r) {
@@ -229,7 +450,7 @@ public:
             return count;
         }
 
-        size_t count_filledBorderLess(size_t const borderThickness) const {
+        constexpr size_t count_filledBorderLess(size_t const borderThickness) const {
             size_t count      = 0;
             auto   matrixView = get_mdspanOfSelf();
             for (size_t r = borderThickness; r < (m_height - borderThickness); ++r) {
@@ -240,10 +461,39 @@ public:
             return count;
         }
 
-        constexpr OverlayRes compute_overlayWith(Shape const &other) const;
+        constexpr Overlay compute_overlayWith(Shape const &other) const {
+
+            // Same case
+            if (other.m_height == m_height && other.m_width == m_width) { return _compute_overlayWith_impl(other); }
+
+            // Other smaller or equal
+            else if (other.m_height <= m_height && other.m_width <= m_width) {
+                auto otherAdj = other;
+                otherAdj.resize_safe(m_height, m_width);
+                return _compute_overlayWith_impl(otherAdj);
+            }
+
+            // Other bigger or equal
+            else if (other.m_height >= m_height && other.m_width >= m_width) {
+                auto selfAdj = *this;
+                selfAdj.resize_safe(other.m_height, other.m_width);
+                return selfAdj._compute_overlayWith_impl(other);
+            }
+
+            // Mixed case
+            else {
+                auto selfAdj = *this;
+                selfAdj.resize_safe(std::max(m_height, other.m_height), std::max(m_width, other.m_width));
+
+                auto otherAdj = other;
+                otherAdj.resize_safe(std::max(m_height, other.m_height), std::max(m_width, other.m_width));
+
+                return selfAdj._compute_overlayWith_impl(other);
+            }
+        }
 
 
-        void flip_v() {
+        constexpr void flip_v() {
             auto mdspn = get_mdspanOfSelf();
             for (size_t rowID = 0uz; rowID < (m_height / 2); ++rowID) {
                 for (size_t colID = 0uz; colID < m_width; ++colID) {
@@ -251,7 +501,7 @@ public:
                 }
             }
         }
-        void flip_h() {
+        constexpr void flip_h() {
             auto mdspn = get_mdspanOfSelf();
             for (size_t rowID = 0uz; rowID < m_height; ++rowID) {
                 for (size_t colID = 0uz; colID < (m_width / 2); ++colID) {
@@ -260,7 +510,7 @@ public:
             }
         }
 
-        Shape rotateCopy_left() const {
+        constexpr Shape rotateCopy_left() const {
             Shape res{.m_height = m_width, .m_width = m_height, .m_matrix = matrix_type(m_height * m_width, 0)};
             auto  mdspn_src = get_mdspanOfSelf();
             auto  mdspn_res = res.get_mdspanOfSelf();
@@ -274,7 +524,7 @@ public:
             return res;
         }
 
-        Shape rotateCopy_right() const {
+        constexpr Shape rotateCopy_right() const {
             Shape res{.m_height = m_width, .m_width = m_height, .m_matrix = matrix_type(m_height * m_width, 0)};
             auto  mdspn_src = get_mdspanOfSelf();
             auto  mdspn_res = res.get_mdspanOfSelf();
@@ -289,7 +539,7 @@ public:
         }
 
 
-        std::vector<Shape> compute_alternsRotFlip() const {
+        constexpr std::vector<Shape> compute_alternsRotFlip() const {
             auto shpCpy         = *this;
             auto shpCpy_rotated = shpCpy.rotateCopy_left();
             ankerl::unordered_dense::set<Shape, standard::hashing::XXH3Hasher> hlprMP;
@@ -313,7 +563,7 @@ public:
             return std::vector<Shape>(hlprMP.begin(), hlprMP.end());
         }
 
-        std::vector<Shape> compute_alternsFlip() const {
+        constexpr std::vector<Shape> compute_alternsFlip() const {
             auto                                                               shpCpy = *this;
             ankerl::unordered_dense::set<Shape, standard::hashing::XXH3Hasher> hlprMP;
 
@@ -329,7 +579,7 @@ public:
         }
 
 
-        bool verify_borderExists(size_t const borderThickness) {
+        constexpr bool verify_borderExists(size_t const borderThickness) {
             if (std::ranges::any_of(std::views::take(m_matrix, borderThickness * m_width),
                                     [](auto const chr) { return (chr != 0); })) {
                 return false;
@@ -353,7 +603,7 @@ public:
         }
 
         // If something part of the border had to be changed then returns 'true', otherwise returns 'false'
-        bool change_forceBorder(size_t const borderThickness, value_type const forceBorderItemsTo = 0) {
+        constexpr bool change_forceBorder(size_t const borderThickness, value_type const forceBorderItemsTo = 0) {
             bool res = false;
             for (auto &oneChr : std::views::take(m_matrix, borderThickness * m_width)) {
                 res    |= (oneChr != forceBorderItemsTo);
@@ -460,8 +710,9 @@ public:
             if (((2 * borderThickness) >= m_height) || ((2 * borderThickness) >= m_width)) { return res; }
 
             static constexpr std::array<char, 3> map{46, 35, 118};
-            auto const inner = pf_submdspan(get_mdspanOfSelf(), std::pair{borderThickness, m_height - borderThickness},
-                                            std::pair{borderThickness, m_width - borderThickness});
+            auto const                           inner =
+                polyfills::submdspan(get_mdspanOfSelf(), std::pair{borderThickness, m_height - borderThickness},
+                                     std::pair{borderThickness, m_width - borderThickness});
             res.reserve(inner.extent(0) * (inner.extent(1) + 1));
 
             for (size_t r = 0; r < inner.extent(0); ++r) {
@@ -508,9 +759,9 @@ private:
 public:
     // Objects of this type are stored inside m_pastComputed and are referenced from m_frontierTiles
     struct PastRes {
-        size_t            uncoveredBySurr = 0;
-        AlternID          ol_shpID{};
-        Shape::OverlayRes ol_res{};
+        size_t         uncoveredBySurr = 0;
+        AlternID       ol_shpID{};
+        Shape::Overlay ol_res{};
     };
 
     // This is the type that gets created by findNextStep functions
@@ -663,8 +914,8 @@ public:
         assert(m_sqsz > 2);
 
         {
-            auto area_view =
-                pf_mdspan<unsigned char, pf_dextents<size_t, 2>>(m_area.data(), m_area_ySize, m_area_xSize);
+            auto area_view = polyfills::mdspan<unsigned char, polyfills::dextents<size_t, 2>>(
+                m_area.data(), m_area_ySize, m_area_xSize);
 
             for (size_t const rowID : {0uz, m_area_ySize - 1uz}) {
                 for (size_t colID = 0; colID < m_area_xSize; ++colID) { area_view[rowID, colID] = 1; }
@@ -716,23 +967,24 @@ private:
     size_t                             m_frontier_ySz;
     size_t                             m_frontier_xSz;
 
-    // pf_mdspan<frontierTilePossibs_t, pf_dextents<size_t, 2>> m_frontierTiles_view;
 
 public:
     auto get_mdspanOfArea() const {
-        return pf_mdspan<const unsigned char, pf_dextents<size_t, 2>>(m_area.data(), m_area_ySize, m_area_xSize);
+        return polyfills::mdspan<const unsigned char, polyfills::dextents<size_t, 2>>(m_area.data(), m_area_ySize,
+                                                                                      m_area_xSize);
     }
     auto get_mdspanOfArea() {
-        return pf_mdspan<unsigned char, pf_dextents<size_t, 2>>(m_area.data(), m_area_ySize, m_area_xSize);
+        return polyfills::mdspan<unsigned char, polyfills::dextents<size_t, 2>>(m_area.data(), m_area_ySize,
+                                                                                m_area_xSize);
     }
 
     auto get_mdspanOfFrontier() const {
-        return pf_mdspan<const frontierTilePossibs_t, pf_dextents<size_t, 2>>(m_frontierTiles.data(), m_frontier_ySz,
-                                                                              m_frontier_xSz);
+        return polyfills::mdspan<const frontierTilePossibs_t, polyfills::dextents<size_t, 2>>(
+            m_frontierTiles.data(), m_frontier_ySz, m_frontier_xSz);
     }
     auto get_mdspanOfFrontier() {
-        return pf_mdspan<frontierTilePossibs_t, pf_dextents<size_t, 2>>(m_frontierTiles.data(), m_frontier_ySz,
-                                                                        m_frontier_xSz);
+        return polyfills::mdspan<frontierTilePossibs_t, polyfills::dextents<size_t, 2>>(m_frontierTiles.data(),
+                                                                                        m_frontier_ySz, m_frontier_xSz);
     }
 
     std::string get_areaState() const {
@@ -991,8 +1243,9 @@ private:
     std::optional<consideredOptionsByShape_t> findNextStep_covering() {
         if (m_uncoverableFrontierPoss.empty()) { return std::nullopt; }
 
-        std::vector<unsigned char>                       tracker(m_frontier_ySz * m_frontier_xSz, 0);
-        pf_mdspan<unsigned char, pf_dextents<size_t, 2>> mdsp(tracker.data(), m_frontier_ySz, m_frontier_xSz);
+        std::vector<unsigned char>                                       tracker(m_frontier_ySz * m_frontier_xSz, 0);
+        polyfills::mdspan<unsigned char, polyfills::dextents<size_t, 2>> mdsp(tracker.data(), m_frontier_ySz,
+                                                                              m_frontier_xSz);
 
         auto const perShpScoringAdj = compute_perShapeScoringAdjustments();
 
@@ -1339,287 +1592,7 @@ public:
 // }
 
 // Downsizes just the 'inner' part of the shape (that is without border)
-inline bool BoxPacker_2D::Shape::_resize_withBorder(size_t const tarHeight, size_t const tarWidth,
-                                                    size_t const borderThickness) {
-    long long const rowDelta     = static_cast<long long>(tarHeight) - static_cast<long long>(m_height);
-    long long const colDelta     = static_cast<long long>(tarWidth) - static_cast<long long>(m_width);
-    auto            row_startEnd = std::pair{borderThickness, m_height - borderThickness};
-    auto            col_startEnd = std::pair{borderThickness, m_width - borderThickness};
 
-    // Rows: We only do the following if we are trying to remove rows
-    if (rowDelta < 0) {
-        auto rd_loc = rowDelta;
-        // Rows: Can remove from the end?
-        for (long long skip =
-                 (static_cast<long long>(m_matrix.size()) - static_cast<long long>((borderThickness + 1) * m_width)) +
-                 static_cast<long long>(borderThickness);
-             (skip > 0ll && rd_loc != 0); skip -= m_width) {
-            if (std::ranges::all_of(std::views::drop(m_matrix, skip) |
-                                        std::views::take(m_width - (2 * borderThickness)),
-                                    [](auto const chr) { return chr == 0; })) {
-                row_startEnd.second--;
-                rd_loc++;
-            }
-            // We break only if we can't remove all we need from the end, we shall try from the beginning
-            else { break; }
-        }
-        // Rows: Can remove from the beginning?
-        for (size_t skip  = (borderThickness * m_width) + borderThickness; (skip < m_matrix.size() && rd_loc != 0);
-             skip        += m_width) {
-            if (std::ranges::all_of(std::views::drop(m_matrix, skip) |
-                                        std::views::take(m_width - (2 * borderThickness)),
-                                    [](auto const chr) { return chr == 0; })) {
-                row_startEnd.first++;
-                rd_loc++;
-            }
-            // We cannot safely resize (downsize) because each row has some data
-            else { return false; }
-        }
-    }
-
-    // Cols: We only do the following if we are trying to remove cols
-    if (colDelta < 0) {
-        auto cd_loc = colDelta;
-        // Cols: Can remove from the end?
-        for (size_t dropAdj = borderThickness + 1; (dropAdj < m_width && cd_loc != 0); ++dropAdj) {
-            if (std::ranges::all_of(detail::pf_views_stride(std::views::drop(m_matrix, m_width - dropAdj), m_width),
-                                    [](auto const chr) { return chr == 0; })) {
-                col_startEnd.second--;
-                cd_loc++;
-            }
-            else {
-                break;
-            } // We break only if we can't remove all we need from the end, we shall try from the beginning
-        }
-
-        // Cols: Can remove from the beginning?
-        for (size_t dropAdj = borderThickness; (dropAdj < m_width && cd_loc != 0); ++dropAdj) {
-            if (std::ranges::all_of(detail::pf_views_stride(std::views::drop(m_matrix, dropAdj), m_width),
-                                    [](auto const chr) { return chr == 0; })) {
-                col_startEnd.first++;
-                cd_loc++;
-            }
-            else { return false; }
-        }
-    }
-
-    size_t const tarItemCount = tarHeight * tarWidth;
-    if (tarItemCount <= m_matrix.size()) {
-        for (size_t curRow = 0; curRow < (row_startEnd.second - row_startEnd.first); ++curRow) {
-
-            std::ranges::rotate(m_matrix.begin() + ((curRow + borderThickness) * tarWidth) + borderThickness,
-                                m_matrix.begin() + (((row_startEnd.first + curRow) * m_width) + (col_startEnd.first)),
-                                m_matrix.begin() + (((row_startEnd.first + curRow) * m_width) + (col_startEnd.second)));
-        }
-        m_matrix.resize(tarItemCount);
-    }
-
-    // tarItemCount > m_matrix_size =>
-    else {
-        while (m_matrix.size() < tarItemCount) { m_matrix.push_back(0); }
-
-        long long const rd_floored = std::max(0ll, rowDelta);
-        long long const cd_floored = std::max(0ll, colDelta);
-
-        for (size_t curRow = 0; curRow < (row_startEnd.second - row_startEnd.first); ++curRow) {
-            std::ranges::rotate(
-                m_matrix.rbegin() + ((curRow + borderThickness + rd_floored) * tarWidth) + borderThickness + cd_floored,
-                m_matrix.rbegin() +
-                    (tarItemCount - (((row_startEnd.second - 1 - curRow) * m_width) + (col_startEnd.second))),
-                m_matrix.rbegin() +
-                    (tarItemCount - (((row_startEnd.second - 1 - curRow) * m_width) + (col_startEnd.first))));
-        }
-    }
-
-    m_height = tarHeight;
-    m_width  = tarWidth;
-    return true;
-}
-
-template <typename T>
-requires more_concepts::container<T> && more_concepts::container<typename T::value_type>
-constexpr inline auto BoxPacker_2D::Shape::_verify_VofV_ctor(T const &VofV) {
-    std::pair res{VofV.size(), 0uz};
-    res.second = std::ranges::fold_left(std::views::transform(VofV, [](auto const &line) { return line.size(); }), 0uz,
-                                        [&](auto &&init, auto const &oneLen) {
-                                            if (init != res.second) { res.second = false; }
-                                            return std::max(init, oneLen);
-                                        });
-
-    return res;
-}
-
-
-inline constexpr BoxPacker_2D::Shape::OverlayRes BoxPacker_2D::Shape::_compute_overlayWith_impl(Shape const &one,
-                                                                                                Shape const &other) {
-
-    BoxPacker_2D::Shape::OverlayRes res{.ol_shp{BoxPacker_2D::Shape::make(one.m_height, one.m_width)}};
-    size_t const                    h = one.m_height;
-    size_t const                    w = one.m_width;
-
-    if (h == 0uz or w == 0uz) { return res; } // Early exit
-
-    auto const mv       = one.get_mdspanOfSelf();
-    auto const mv_other = other.get_mdspanOfSelf();
-    auto const mv_res   = res.ol_shp.get_mdspanOfSelf();
-
-
-    for (size_t r = 0; r < h; ++r) {
-        for (size_t c = 0; c < w; ++c) {
-            res.pointsOverlaid += (mv[r, c] != 0) && (mv_other[r, c] != 0);
-            res.pointsAdded    += (mv[r, c] == 0) && (mv_other[r, c] != 0);
-            mv_res[r, c]        = (mv[r, c] != 0 || mv_other[r, c] != 0) ? 1 : 0;
-        }
-    }
-
-    Shape touch    = Shape::make(h, w);
-    Shape notTouch = Shape::make(h, w);
-
-    auto mv_touch    = touch.get_mdspanOfSelf();
-    auto mv_notTouch = notTouch.get_mdspanOfSelf();
-
-    for (size_t r = 1; r < h - 1; ++r) {
-        for (size_t c = 1; c < w - 1; ++c) {
-            if (mv_other[r, c] == 0) { continue; }
-
-            res.bordersTouching += (mv[r - 1, c] != 0) && (mv_other[r - 1, c] == 0);
-            res.bordersTouching += (mv[r, c - 1] != 0) && (mv_other[r, c - 1] == 0);
-            res.bordersTouching += (mv[r, c + 1] != 0) && (mv_other[r, c + 1] == 0);
-            res.bordersTouching += (mv[r + 1, c] != 0) && (mv_other[r + 1, c] == 0);
-
-            mv_touch[r - 1, c] |= (mv[r - 1, c] != 0) && (mv_other[r - 1, c] == 0);
-            mv_touch[r, c - 1] |= (mv[r, c - 1] != 0) && (mv_other[r, c - 1] == 0);
-            mv_touch[r, c + 1] |= (mv[r, c + 1] != 0) && (mv_other[r, c + 1] == 0);
-            mv_touch[r + 1, c] |= (mv[r + 1, c] != 0) && (mv_other[r + 1, c] == 0);
-
-            res.bordersNotTouching += (mv[r - 1, c] == 0) && (mv_other[r - 1, c] == 0);
-            res.bordersNotTouching += (mv[r, c - 1] == 0) && (mv_other[r, c - 1] == 0);
-            res.bordersNotTouching += (mv[r, c + 1] == 0) && (mv_other[r, c + 1] == 0);
-            res.bordersNotTouching += (mv[r + 1, c] == 0) && (mv_other[r + 1, c] == 0);
-
-            mv_notTouch[r - 1, c] |= (mv[r - 1, c] == 0) && (mv_other[r - 1, c] == 0);
-            mv_notTouch[r, c - 1] |= (mv[r, c - 1] == 0) && (mv_other[r, c - 1] == 0);
-            mv_notTouch[r, c + 1] |= (mv[r, c + 1] == 0) && (mv_other[r, c + 1] == 0);
-            mv_notTouch[r + 1, c] |= (mv[r + 1, c] == 0) && (mv_other[r + 1, c] == 0);
-        }
-    }
-
-    Shape gapPastMemo    = Shape::make(h, w);
-    Shape filledPastMemo = Shape::make(h, w);
-    Shape curMemo        = Shape::make(h, w);
-
-    auto mv_gapPastMemo    = gapPastMemo.get_mdspanOfSelf();
-    auto mv_filledPastMemo = filledPastMemo.get_mdspanOfSelf();
-    auto mv_curMemo        = curMemo.get_mdspanOfSelf();
-
-    Pos curPos{.y = 0, .x = 0};
-
-    auto gapsRecLambda = [&](this auto const &self) -> bool {
-        if (mv_res[curPos.y, curPos.x] != 0) { return true; }
-        if (mv_curMemo[curPos.y, curPos.x] != 0) { return true; }
-        mv_curMemo[curPos.y, curPos.x] = 1;
-
-        if (mv_gapPastMemo[curPos.y, curPos.x] != 0) { return false; }
-        mv_gapPastMemo[curPos.y, curPos.x] = 1;
-
-        for (auto const &[row, col] : explorers::directions::get_dirChanges_2D()) {
-            if (curPos.y + row < 0 || curPos.y + row >= static_cast<long long>(h) || curPos.x + col < 0 ||
-                curPos.x + col >= static_cast<long long>(w)) {
-                continue;
-            }
-            curPos.y += row;
-            curPos.x += col;
-            if (! self()) { return false; }
-            curPos.y -= row;
-            curPos.x -= col;
-        }
-        return true;
-    };
-
-    auto filledRecLambda = [&](this auto const &self) -> bool {
-        if (mv_res[curPos.y, curPos.x] == 0) { return true; }
-        if (mv_curMemo[curPos.y, curPos.x] != 0) { return true; }
-        mv_curMemo[curPos.y, curPos.x] = 1;
-
-        if (mv_filledPastMemo[curPos.y, curPos.x] != 0) { return false; }
-        mv_filledPastMemo[curPos.y, curPos.x] = 1;
-
-        for (auto const &[row, col] : explorers::directions::get_dirChanges_2D()) {
-            if (curPos.y + row < 0 || curPos.y + row >= static_cast<long long>(h) || curPos.x + col < 0 ||
-                curPos.x + col >= static_cast<long long>(w)) {
-                continue;
-            }
-            curPos.y += row;
-            curPos.x += col;
-            if (! self()) { return false; }
-            curPos.y -= row;
-            curPos.x -= col;
-        }
-        return true;
-    };
-
-    for (size_t r = 0; r < h; ++r) {
-        for (size_t c = 0; c < w; ++c) {
-            if (mv_res[r, c] == 0 && mv_gapPastMemo[r, c] == 0) {
-                curPos.y = static_cast<long long>(r);
-                curPos.x = static_cast<long long>(c);
-                curMemo.reset();
-                res.gapsCount += gapsRecLambda();
-            }
-            if (mv_res[r, c] != 0 && mv_filledPastMemo[r, c] == 0) {
-                curPos.y = static_cast<long long>(r);
-                curPos.x = static_cast<long long>(c);
-                curMemo.reset();
-                res.shapesCount += filledRecLambda();
-            }
-        }
-    }
-
-    res.pointsTouching    = touch.count_filled();
-    res.pointsNotTouching = notTouch.count_filled();
-    double const denomP   = std::max(static_cast<double>(res.pointsTouching + res.pointsNotTouching), 1.0);
-    double const denomB   = std::max(static_cast<double>(res.bordersTouching + res.bordersNotTouching), 1.0);
-
-    res.surfacePointsCovered_relative = res.pointsTouching / denomP;
-    res.surfacePointsOpened_relative  = res.pointsNotTouching / denomP;
-
-    res.surfaceCovered_relative = res.bordersTouching / denomB;
-    res.surfaceOpened_relative  = res.bordersNotTouching / denomB;
-
-    return res;
-}
-
-
-inline constexpr BoxPacker_2D::Shape::OverlayRes BoxPacker_2D::Shape::compute_overlayWith(Shape const &other) const {
-
-    // Same case
-    if (other.m_height == m_height && other.m_width == m_width) { return _compute_overlayWith_impl(*this, other); }
-
-    // Other smaller or equal
-    else if (other.m_height <= m_height && other.m_width <= m_width) {
-        auto otherAdj = other;
-        otherAdj.resize_safe(m_height, m_width);
-        return _compute_overlayWith_impl(*this, otherAdj);
-    }
-
-    // Other bigger or equal
-    else if (other.m_height >= m_height && other.m_width >= m_width) {
-        auto selfAdj = *this;
-        selfAdj.resize_safe(other.m_height, other.m_width);
-        return _compute_overlayWith_impl(*this, other);
-    }
-
-    // Mixed case
-    else {
-        auto selfAdj = *this;
-        selfAdj.resize_safe(std::max(m_height, other.m_height), std::max(m_width, other.m_width));
-
-        auto otherAdj = other;
-        otherAdj.resize_safe(std::max(m_height, other.m_height), std::max(m_width, other.m_width));
-
-        return _compute_overlayWith_impl(selfAdj, other);
-    }
-}
 
 } // namespace packing
 
