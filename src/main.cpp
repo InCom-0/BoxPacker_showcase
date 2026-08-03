@@ -487,23 +487,22 @@ int main(int, char **) {
                             }
                         }
 
-                        if (std::ranges::fold_left(shpsForBoxPacker_view, 0uz,
-                                                   [](size_t init, auto const &oneShpAltern) {
-                                                       return std::max(init, oneShpAltern.size());
-                                                   }) == 0uz) {
+                        auto shpsForBP = shpsForBoxPacker_view | std::ranges::to<std::vector>();
+
+                        if (std::ranges::fold_left(shpsForBP, 0uz, [](size_t init, auto const &oneShpAltern) {
+                                return std::max(init, oneShpAltern.size());
+                            }) == 0uz) {
                             // Invalid, no shapes to place ... makes no sense to solve for that
                         }
                         else {
                             jobs.push_back(std::make_pair(
                                 incom::standard::async::spawn_uptr(
-                                    incom::box_packer::bp_asyncExecute, tPool_workSch, planTrees,
-                                    std::vector(std::from_range, shpsForBoxPacker_view),
+                                    incom::box_packer::bp_asyncExecute, tPool_workSch, planTrees, shpsForBP,
                                     incom::standard::async::Separator{},
                                     moodycamel::ReaderWriterQueue<
                                         std::tuple<size_t, incom::box_packer::BP_Pos, incom::box_packer::BP_AlternID,
                                                    incom::box_packer::BP_Shape>>{4096}),
-                                incom::box_packer::SolveResStore(planTrees,
-                                                                 std::vector(std::from_range, shpsForBoxPacker_view))));
+                                incom::box_packer::SolveResStore(planTrees, shpsForBP)));
 
                             sel_jobID = jobs.size() - 1;
                             sel_resID = std::nullopt;
@@ -564,14 +563,13 @@ int main(int, char **) {
                         size_t const colCount = std::min(3uz, shps.m_shapes.size() - curShpIDX);
                         for (int c = 0; c < colCount; ++c) {
                             // Shape creator begin
-                            size_t const shp_height = (shps.m_shapes.at(curShpIDX).m_height - 1); // Without borders
-                            size_t const shp_width  = (shps.m_shapes.at(curShpIDX).m_width - 1);  // Without borders
+                            size_t const &shp_width = shps.m_shapes.at(curShpIDX).m_width;
 
                             ImGui::BeginGroup();
 
                             // Shape creator header (count of shapes DragInt)
                             int curVal = oneTree.reqdShapes.at(curShpIDX);
-                            ImGui::PushItemWidth((std::max(shp_width, 2uz) - 1) * 27);
+                            ImGui::PushItemWidth(std::max(shp_width, 1uz) * 27);
                             ImGui::PushID(r * 3 + c);
                             ImGui::DragInt("", &curVal, 0.1f, 0, 100, "%d");
                             oneTree.set_reqdShape(curShpIDX, curVal);
@@ -580,7 +578,7 @@ int main(int, char **) {
 
 
                             ImGui::PushID(r * rowCount + c);
-                            if (ImGui::BeginTable("OneShape_table", shp_width - 1,
+                            if (ImGui::BeginTable("OneShape_table", shp_width,
                                                   ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV |
                                                       ImGuiTableFlags_BordersH | ImGuiTableFlags_SizingFixedSame |
                                                       ImGuiTableFlags_NoHostExtendX | ImGuiTableFlags_NoPadOuterX |
@@ -588,18 +586,18 @@ int main(int, char **) {
                                                   ImVec2(0.0f, 0.0f))) {
 
 
-                                for (int c = 0; c < (shp_width - 1); ++c) {
+                                for (int c = 0; c < shp_width; ++c) {
                                     ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 26.0f);
                                 };
 
 
                                 auto spn = shps.m_shapes.at(curShpIDX).get_mdspanOfSelf();
-                                for (int tRow = 1; tRow < shp_height; tRow++) {
+                                for (int tRow = 0; tRow < shps.m_shapes.at(curShpIDX).m_height; tRow++) {
                                     ImGui::TableNextRow(ImGuiTableRowFlags_None, 26);
-                                    for (int tCol = 1; tCol < shp_width; tCol++) {
+                                    for (int tCol = 0; tCol < shp_width; tCol++) {
 
                                         ImGui::PushID(tRow * shp_width + tCol);
-                                        ImGui::TableSetColumnIndex(tCol - 1);
+                                        ImGui::TableSetColumnIndex(tCol);
                                         if (ImGui::Selectable("", false)) {
                                             spn[tRow, tCol] = not static_cast<bool>(spn[tRow, tCol]);
                                         }

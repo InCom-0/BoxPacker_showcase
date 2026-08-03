@@ -110,7 +110,7 @@ struct SolveResStore {
     SolveResStore(std::vector<Tree> const &trees, std::vector<std::vector<BP_Shape>> const &shpsAlterns,
                   std::array<incom::standard::color::inc_sRGB, 256> const &palette =
                       incom::standard::console::color_schemes::windows_terminal::dimidium256.palette)
-        : m_trees(trees), m_sqsz(shpsAlterns.front().front().m_height), m_shpsAlterns(shpsAlterns),
+        : m_trees(trees), m_sqsz(shpsAlterns.front().front().m_height + 2), m_shpsAlterns(shpsAlterns),
           vecOfRes(trees.size()), endOfVisible(trees.size(), 0uz),
           m_curPlacedCount(trees.size(), std::vector<size_t>(m_shpsAlterns.size(), 0)),
           m_reaAreaMaps(std::from_range,

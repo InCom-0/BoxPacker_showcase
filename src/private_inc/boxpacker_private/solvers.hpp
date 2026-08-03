@@ -661,15 +661,23 @@ public:
                 m_matrix.size() + (2 * borderThickness) * ((2 * borderThickness) + m_height + m_width);
             size_t const target_height = m_height + (2 * borderThickness);
             size_t const target_width  = m_width + (2 * borderThickness);
+            size_t const sizeDelta     = targetTotalSz - m_matrix.size();
 
             while (m_matrix.size() < targetTotalSz) { m_matrix.push_back(0); }
-            size_t const rowDelta = target_width - m_width;
+            // size_t const rowDelta = target_width - m_width;
 
-            for (int oldRowID = (static_cast<int>(m_height) - 1); oldRowID > 0; --oldRowID) {
-                size_t const fromStart = oldRowID * m_height;
-                std::ranges::rotate(m_matrix.begin() + fromStart, m_matrix.begin() + fromStart + m_width,
-                                    m_matrix.begin() + fromStart + m_width + (rowDelta * oldRowID) + borderThickness +
-                                        (target_width * borderThickness));
+            // for (int oldRowID = (static_cast<int>(m_height) - 1); oldRowID > 0; --oldRowID) {
+            //     size_t const fromStart = oldRowID * m_height;
+            //     std::ranges::rotate(m_matrix.begin() + fromStart, m_matrix.begin() + fromStart + m_width,
+            //                         m_matrix.begin() + fromStart + m_width + (rowDelta * oldRowID) + borderThickness
+            //                         +
+            //                             (target_width * borderThickness));
+            // }
+
+            for (size_t r_rowID = 0uz; r_rowID < m_height; ++r_rowID) {
+                std::ranges::rotate(m_matrix.rbegin() + ((r_rowID + borderThickness) * target_width) + borderThickness,
+                                    m_matrix.rbegin() + sizeDelta + (r_rowID * m_width),
+                                    m_matrix.rbegin() + sizeDelta + (r_rowID * m_width) + m_width);
             }
 
             m_height = target_height;
