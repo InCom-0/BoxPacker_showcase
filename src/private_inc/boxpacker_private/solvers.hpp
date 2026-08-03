@@ -834,7 +834,7 @@ public:
         }
     };
 
-    std::optional<std::tuple<Pos, PastRes>> solve_oneStep() {
+    std::optional<std::tuple<Pos, AlternID, Shape>> solve_oneStep() {
         // TODO: Need to create findNextStep_onePossibility
         auto selOpt = findNextStep_covering()
                           .or_else([this]() { return findNextStep_regular(); })
@@ -842,9 +842,11 @@ public:
                           .and_then([this](auto const &VofV_csos) { return select_oneCSO(VofV_csos); });
 
         if (! selOpt.has_value()) { return std::nullopt; }
+        ConsideredShapeOption const &selCSO = selOpt.value();
 
-        ConsideredShapeOption const   &selCSO = selOpt.value();
-        std::tuple<Pos, PastRes> const res{selCSO.p, selCSO.pr_option};
+        std::tuple<Pos, AlternID, Shape> const res{
+            selCSO.p, selCSO.pr_option.ol_shpID,
+            m_shapes_alterns.at(selCSO.pr_option.ol_shpID.shpID).at(selCSO.pr_option.ol_shpID.alternID)};
 
         auto const surrPoss = get_surrOverlappingPoss_forWindowsAt(std::get<0>(res), m_shapeOLCount_border);
         erase_fromFrontier(surrPoss);
@@ -852,7 +854,7 @@ public:
         add_toFrontier(surrPoss);
         m_placedShapes++;
 
-        m_useableCount_perShape[std::get<1>(res).ol_shpID.shpID]--;
+        m_useableCount_perShape[std::get<1>(res).shpID]--;
 
         for (Pos const &uncov : verify_uncoverable(selCSO)) {
             if (std::ranges::find_if(m_uncoverableFrontierPoss, [&](auto const &item) {
@@ -865,8 +867,8 @@ public:
         return res;
     }
 
-    std::vector<std::tuple<Pos, PastRes>> solve_XSteps(size_t numOfSteps = std::numeric_limits<size_t>::max()) {
-        std::vector<std::tuple<Pos, PastRes>> res;
+    std::vector<std::tuple<Pos, AlternID, Shape>> solve_XSteps(size_t numOfSteps = std::numeric_limits<size_t>::max()) {
+        std::vector<std::tuple<Pos, AlternID, Shape>> res;
         while (numOfSteps-- > 0) {
             if (auto oneStepRes = solve_oneStep()) { res.push_back(std::move(oneStepRes.value())); }
             else { break; }

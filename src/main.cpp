@@ -241,10 +241,11 @@ int main(int, char **) {
     auto                     tPool_workSch = tPool_work.get_scheduler();
 
     std::vector<std::pair<std::unique_ptr<decltype(incom::standard::async::spawn(
-                              incom::box_packer::bp_asyncExecute, tPool_workSch, trees,
-                              std::vector(std::from_range, shpsForBoxPacker_view), incom::standard::async::Separator{},
+                              incom::box_packer::bp_asyncExecute, tPool_workSch, trees, shps.m_shapes,
+                              incom::standard::async::Separator{},
                               moodycamel::ReaderWriterQueue<
-                                  std::tuple<size_t, incom::box_packer::BP_Pos, incom::box_packer::BP_PastRes>>{}))>,
+                                  std::tuple<size_t, incpack::BoxPacker_2D::Pos, incpack::BoxPacker_2D::AlternID,
+                                             incpack::BoxPacker_2D::Shape>>{}))>,
                           incom::box_packer::SolveResStore>>
         jobs;
 
@@ -272,8 +273,8 @@ int main(int, char **) {
         for (auto &[jr, resStore] : jobs) {
             std::tuple<size_t, incom::box_packer::BP_Pos, incom::box_packer::BP_PastRes> dq;
             while (std::get<0>(jr->m_qs).peek() != nullptr) {
-                auto const &[resID, itemPos, itemPR] = *std::get<0>(jr->m_qs).peek();
-                resStore.vecOfRes.at(resID).push_back({itemPos, itemPR});
+                auto const &[resID, itemPos, itemAltID, shp] = *std::get<0>(jr->m_qs).peek();
+                resStore.vecOfRes.at(resID).push_back({itemPos, itemAltID, shp});
                 resStore.endOfVisible.at(resID) = resStore.vecOfRes.at(resID).size();
 
                 resStore.update_oneShape(resID, resStore.vecOfRes.at(resID).size() - 1);
@@ -499,8 +500,8 @@ int main(int, char **) {
                                     std::vector(std::from_range, shpsForBoxPacker_view),
                                     incom::standard::async::Separator{},
                                     moodycamel::ReaderWriterQueue<
-                                        std::tuple<size_t, incom::box_packer::BP_Pos, incom::box_packer::BP_PastRes>>{
-                                        4096}),
+                                        std::tuple<size_t, incom::box_packer::BP_Pos, incom::box_packer::BP_AlternID,
+                                                   incom::box_packer::BP_Shape>>{4096}),
                                 incom::box_packer::SolveResStore(planTrees,
                                                                  std::vector(std::from_range, shpsForBoxPacker_view))));
 
@@ -652,7 +653,7 @@ int main(int, char **) {
                 if (ImGui::Button("  ")) {
                     if (shps.m_shapes.size() != 0) {
                         shps.m_shapes.push_back(incpack::BoxPacker_2D::Shape::make(shps.m_shapes.back().m_height,
-                                                                                      shps.m_shapes.back().m_width));
+                                                                                   shps.m_shapes.back().m_width));
                     }
                     else { shps.m_shapes.push_back(incpack::BoxPacker_2D::Shape::make(5, 5)); }
 

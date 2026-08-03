@@ -32,6 +32,7 @@ namespace incpack = incom::standard::solvers_TEMP::packing;
 using BP_Pos      = incpack::BoxPacker_2D::Pos;
 using BP_PastRes  = incpack::BoxPacker_2D::PastRes;
 using BP_Shape    = incpack::BoxPacker_2D::Shape;
+using BP_AlternID = incpack::BoxPacker_2D::AlternID;
 
 
 struct ShapesStorage {
@@ -92,11 +93,13 @@ struct Tree {
 
 struct SolveResStore {
 
-    std::vector<Tree>                                                                              m_trees;
-    std::size_t                                                                                    m_sqsz;
-    std::vector<std::vector<BP_Shape>> const                                                       m_shpsAlterns;
-    std::vector<std::vector<std::tuple<incom::box_packer::BP_Pos, incom::box_packer::BP_PastRes>>> vecOfRes = {};
-    std::vector<size_t>                                                                            endOfVisible;
+    std::vector<Tree>                        m_trees;
+    std::size_t                              m_sqsz;
+    std::vector<std::vector<BP_Shape>> const m_shpsAlterns;
+    std::vector<std::vector<
+        std::tuple<incom::box_packer::BP_Pos, incpack::BoxPacker_2D::AlternID, incom::box_packer::BP_Shape>>>
+                        vecOfRes = {};
+    std::vector<size_t> endOfVisible;
 
     std::vector<std::vector<size_t>> m_curPlacedCount;
 
@@ -176,38 +179,32 @@ struct SolveResStore {
 
 
     void update_oneShape(size_t const resID, size_t const vecOfRes_ID) {
+        auto areaView                         = get_mdspan_areaTree(resID);
+        auto const &[itemPos, itemAltID, shp] = vecOfRes.at(resID).at(vecOfRes_ID);
+        auto const shapeView                  = shp.get_mdspanOfSelf();
 
-        auto areaView                 = get_mdspan_areaTree(resID);
-        auto const &[itemPos, itemPR] = vecOfRes.at(resID).at(vecOfRes_ID);
-        auto const shapeView = m_shpsAlterns.at(itemPR.ol_shpID.shpID).at(itemPR.ol_shpID.alternID).get_mdspanOfSelf();
-        auto const h_loc     = m_shpsAlterns.at(itemPR.ol_shpID.shpID).at(itemPR.ol_shpID.alternID).m_height;
-        auto const w_loc     = m_shpsAlterns.at(itemPR.ol_shpID.shpID).at(itemPR.ol_shpID.alternID).m_width;
-
-        for (size_t r = itemPos.y + 1; r < itemPos.y + (h_loc - 1); ++r) {
-            for (size_t c = itemPos.x + 1; c < itemPos.x + (w_loc - 1); ++c) {
+        for (size_t r = itemPos.y + 1; r < itemPos.y + (shp.m_height - 1); ++r) {
+            for (size_t c = itemPos.x + 1; c < itemPos.x + (shp.m_width - 1); ++c) {
                 if (shapeView[r - (itemPos.y + 1) + 1, c - (itemPos.x + 1) + 1]) {
                     // Because the value is a color ID starting from 1, because zero is no color
-                    areaView[r, c] = itemPR.ol_shpID.shpID + 1;
+                    areaView[r, c] = itemAltID.shpID + 1;
                 }
             }
         }
-        m_curPlacedCount.at(resID).at(itemPR.ol_shpID.shpID)++;
+        m_curPlacedCount.at(resID).at(itemAltID.shpID)++;
     }
 
     void remove_oneShape(size_t const resID, size_t const vecOfRes_ID) {
+        auto areaView                         = get_mdspan_areaTree(resID);
+        auto const &[itemPos, itemAltID, shp] = vecOfRes.at(resID).at(vecOfRes_ID);
+        auto const shapeView                  = shp.get_mdspanOfSelf();
 
-        auto areaView                 = get_mdspan_areaTree(resID);
-        auto const &[itemPos, itemPR] = vecOfRes.at(resID).at(vecOfRes_ID);
-        auto const shapeView = m_shpsAlterns.at(itemPR.ol_shpID.shpID).at(itemPR.ol_shpID.alternID).get_mdspanOfSelf();
-        auto const h_loc     = m_shpsAlterns.at(itemPR.ol_shpID.shpID).at(itemPR.ol_shpID.alternID).m_height;
-        auto const w_loc     = m_shpsAlterns.at(itemPR.ol_shpID.shpID).at(itemPR.ol_shpID.alternID).m_width;
-
-        for (size_t r = itemPos.y + 1; r < itemPos.y + (h_loc - 1); ++r) {
-            for (size_t c = itemPos.x + 1; c < itemPos.x + (w_loc - 1); ++c) {
+        for (size_t r = itemPos.y + 1; r < itemPos.y + (shp.m_height - 1); ++r) {
+            for (size_t c = itemPos.x + 1; c < itemPos.x + (shp.m_width - 1); ++c) {
                 if (shapeView[r - (itemPos.y + 1) + 1, c - (itemPos.x + 1) + 1]) { areaView[r, c] = 0; }
             }
         }
-        m_curPlacedCount.at(resID).at(itemPR.ol_shpID.shpID)--;
+        m_curPlacedCount.at(resID).at(itemAltID.shpID)--;
     }
 
     bool moveInTime_area(size_t const resID, int const moveInTimeBy) {
@@ -325,7 +322,7 @@ inline std::tuple<std::string, ShapesStorage, std::vector<Tree>> parse_integrate
 
 inline constexpr auto bp_asyncExecute =
     [](auto &sch, std::vector<incom::box_packer::Tree> const trees, auto const shpsToUse,
-       moodycamel::ReaderWriterQueue<std::tuple<size_t, incpack::BoxPacker_2D::Pos, BP_PastRes>> &q)
+       moodycamel::ReaderWriterQueue<std::tuple<size_t, BP_Pos, incpack::BoxPacker_2D::AlternID, BP_Shape>> &q)
     -> exec::basic_task<void, experimental::execution::__task::inline_task_context<void>> {
     co_await stdexec::schedule(sch);
     incpack::BoxPacker_2D solver(trees.front().yDim, trees.front().xDim, shpsToUse, trees.front().reqdShapes);
