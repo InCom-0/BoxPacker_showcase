@@ -341,16 +341,11 @@ public:
 
         template <typename T>
         requires more_concepts::container<T> && more_concepts::container<typename T::value_type>
-        constexpr static auto _get_maxHeightMaxWidth(T const &VofV) {
-            std::pair res{VofV.size(), 0uz};
-            res.second =
+        constexpr static std::pair<size_t, size_t> _get_maxHeightMaxWidth(T const &VofV) {
+            return std::pair{
+                VofV.size(),
                 std::ranges::fold_left(std::views::transform(VofV, [](auto const &line) { return line.size(); }), 0uz,
-                                       [&](auto &&init, auto const &oneLen) {
-                                           if (init != res.second) { res.second = false; }
-                                           return std::max(init, oneLen);
-                                       });
-
-            return res;
+                                       [&](auto &&init, auto const &oneLen) { return std::max(init, oneLen); })};
         }
 
     public:
