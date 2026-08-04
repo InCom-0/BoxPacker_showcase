@@ -56,10 +56,10 @@ public:
 
     class Shape;
     struct PastRes;
-    struct ConsideredShapeOption;
+    struct OptionAtPos;
 
 private:
-    struct __OverlayRes;
+    struct Overlay;
 
 public:
     struct Pos {
@@ -81,8 +81,6 @@ public:
     public:
         using value_type  = unsigned char;
         using matrix_type = std::vector<value_type>;
-
-        using Overlay = __OverlayRes;
 
         size_t      m_height = 0uz;
         size_t      m_width  = 0uz;
@@ -203,9 +201,9 @@ public:
         constexpr Overlay _compute_overlayWith_impl(Shape const &other) const {
             Shape const &one = *this;
 
-            BoxPacker_2D::Shape::Overlay res{.ol_shp{BoxPacker_2D::Shape::make(one.m_height, one.m_width)}};
-            size_t const                 h = one.m_height;
-            size_t const                 w = one.m_width;
+            Overlay      res{.ol_shp{Shape::make(one.m_height, one.m_width)}};
+            size_t const h = one.m_height;
+            size_t const w = one.m_width;
 
             if (h == 0uz or w == 0uz) { return res; } // Early exit
 
@@ -769,9 +767,8 @@ public:
     };
 
 private:
-    struct __OverlayRes {
-        BoxPacker_2D::Shape ol_shp;
-
+    struct Overlay {
+        Shape ol_shp;
 
         size_t pointsAdded        = 0;
         size_t pointsOverlaid     = 0;
@@ -794,21 +791,23 @@ private:
 public:
     // Objects of this type are stored inside m_pastComputed and are referenced from m_frontierTiles
     struct PastRes {
-        size_t         uncoveredBySurr = 0;
-        AlternID       ol_shpID{};
-        Shape::Overlay ol_res{};
+        size_t   uncoveredBySurr = 0;
+        AlternID ol_shpID{};
+        Overlay  ol_res{};
     };
 
     // This is the type that gets created by findNextStep functions
-    struct ConsideredShapeOption {
+    struct OptionAtPos {
         enum class Type : uint8_t {
             Gapless = 1,
             Dividing,
             Gapcreating
         };
 
-        Pos     p{};
-        PastRes pr_option{};
+        Pos      p{};
+        AlternID altID{};
+        // Shape    shp{};
+        // PastRes pr_option{};
 
         Type type = Type::Gapcreating;
     };
@@ -817,7 +816,7 @@ public:
     using frontierTilePossibs_t = std::optional<std::reference_wrapper<possibsByShape_t>>;
     using pastResMap_t =
         ankerl::unordered_dense::segmented_map<Shape, possibsByShape_t, incom::standard::hashing::XXH3Hasher>;
-    using consideredOptionsByShape_t = std::vector<std::vector<ConsideredShapeOption>>;
+    using consideredOptionsByShape_t = std::vector<std::vector<OptionAtPos>>;
 
     struct SolverPolicy {
         struct SelectionState {
@@ -850,21 +849,20 @@ public:
                           .and_then([this](auto const &VofV_csos) { return select_oneCSO(VofV_csos); });
 
         if (! selOpt.has_value()) { return std::nullopt; }
-        ConsideredShapeOption const &selCSO = selOpt.value();
+        OptionAtPos const &sel = selOpt.value();
 
-        std::tuple<Pos, AlternID, Shape> const res{
-            selCSO.p, selCSO.pr_option.ol_shpID,
-            m_shapes_alterns.at(selCSO.pr_option.ol_shpID.shpID).at(selCSO.pr_option.ol_shpID.alternID)};
+        std::tuple<Pos, AlternID, Shape> const res{sel.p, sel.altID,
+                                                   m_shapes_alterns.at(sel.altID.shpID).at(sel.altID.alternID)};
 
         auto const surrPoss = get_surrOverlappingPoss_forWindowsAt(std::get<0>(res), m_shapeOLCount_border);
         erase_fromFrontier(surrPoss);
-        set_windowAtPos(selCSO.p, selCSO.pr_option);
+        add_shapeAtPos(sel.p, std::get<2>(res));
         add_toFrontier(surrPoss);
         m_placedShapes++;
 
         m_useableCount_perShape[std::get<1>(res).shpID]--;
 
-        for (Pos const &uncov : verify_uncoverable(selCSO)) {
+        for (Pos const &uncov : verify_uncoverable(sel)) {
             if (std::ranges::find_if(m_uncoverableFrontierPoss, [&](auto const &item) {
                     return (item.y == uncov.y && item.x == uncov.x);
                 }) == m_uncoverableFrontierPoss.end()) {
@@ -915,7 +913,7 @@ public:
     ~BoxPacker_2D()                    = default;
 
     BoxPacker_2D &operator=(BoxPacker_2D const &) = delete;
-    BoxPacker_2D &operator=(BoxPacker_2D &&)      = default;
+    BoxPacker_2D &operator=(BoxPacker_2D &&)      = delete;
 
     BoxPacker_2D(size_t const area_ySize, size_t const area_xSize, std::vector<std::vector<Shape>> const &shps_alterns,
                  std::vector<size_t> const &shps_counts, pastResMap_t const &pastResults = {})
@@ -951,21 +949,16 @@ public:
                                         return shpAlternLine.size() == 0 ? 0uz : shpAlternLine.front().m_height;
                                     }),
               0uz, [](size_t init, size_t oneMaxSize) { return std::max(init, oneMaxSize); })),
-
-          m_area_ySize(area_ySize + (2 * m_sqsz - 4)), m_area_xSize(area_xSize + (2 * m_sqsz - 4)),
-          m_area(m_area_ySize * m_area_xSize, 0), m_frontier_ySz(area_ySize + 1 - m_sqsz),
-          m_frontier_xSz(area_xSize + 1 - m_sqsz),
-          m_frontierTiles(m_frontier_ySz * m_frontier_xSz, frontierTilePossibs_t{}),
-
           m_shapesMaxEmpty(((m_sqsz - 2) * (m_sqsz - 2)) -
                            [&] {
-                               auto filledCounts = std::views::transform(m_shapes_alterns, [&](auto &vecOfAlterns) {
-                                   return vecOfAlterns.empty() ? ((m_sqsz - 2) * (m_sqsz - 2))
-                                                               : vecOfAlterns.front().count_filledBorderLess();
-                               });
-
                                return std::ranges::fold_left(
-                                   filledCounts, ((m_sqsz - 2uz) * (m_sqsz - 2uz)),
+                                   std::views::transform(m_shapes_alterns,
+                                                         [&](auto &vecOfAlterns) {
+                                                             return vecOfAlterns.empty()
+                                                                        ? ((m_sqsz - 2) * (m_sqsz - 2))
+                                                                        : vecOfAlterns.front().count_filledBorderLess();
+                                                         }),
+                                   ((m_sqsz - 2uz) * (m_sqsz - 2uz)),
                                    [](size_t init, size_t oneFilledCount) { return std::min(init, oneFilledCount); });
                            }()),
           m_useableCount_perShape(std::views::take(shps_counts, std::min(shps_counts.size(), shps_alterns.size())) |
@@ -976,6 +969,12 @@ public:
                                                                                                size_t{0}, std::plus{})),
                                                     1.0)](size_t oneCount) { return oneCount / sum; }) |
               std::ranges::to<std::vector>()),
+          m_area_ySize(area_ySize + (2 * m_sqsz - 4)), m_area_xSize(area_xSize + (2 * m_sqsz - 4)),
+          m_area(m_area_ySize * m_area_xSize, 0), m_frontier_ySz(area_ySize + 1 - m_sqsz),
+          m_frontier_xSz(area_xSize + 1 - m_sqsz),
+          m_frontierTiles(m_frontier_ySz * m_frontier_xSz, frontierTilePossibs_t{}),
+
+
           m_pastComputed(pastResults) {
 
         assert(m_sqsz > 2);
@@ -1013,12 +1012,21 @@ public:
               shps_counts, pastResults) {}
 
 private:
-    std::vector<std::vector<Shape>> m_shapes_alterns;
+    std::vector<std::vector<Shape>> const m_shapes_alterns;
 
-    size_t m_sqsz                = 0uz; // This is for 'Shapes' used by the BoxPacker
-    size_t m_shapeOLCount_full   = (2 * m_sqsz) - 1;
-    size_t m_shapeOLCount_border = m_shapeOLCount_full - 2;
-    size_t m_shapeOLCount_inside = m_shapeOLCount_full - 4;
+    size_t const m_sqsz                = 0uz; // This is for 'Shapes' used by the BoxPacker
+    size_t const m_shapeOLCount_full   = (2 * m_sqsz) - 1;
+    size_t const m_shapeOLCount_border = m_shapeOLCount_full - 2;
+    size_t const m_shapeOLCount_inside = m_shapeOLCount_full - 4;
+    size_t const m_shapesMaxEmpty      = 0;
+
+    std::vector<size_t>                       m_useableCount_perShape;
+    std::vector<double>                       m_shapesRatios_orig;
+    incom::standard::random::FastPseudoRandom m_fprng;
+
+    size_t          m_placedShapes            = 0uz;
+    pastResMap_t    m_pastComputed            = {};
+    std::deque<Pos> m_uncoverableFrontierPoss = {};
 
     size_t                     m_area_ySize;
     size_t                     m_area_xSize;
@@ -1028,17 +1036,6 @@ private:
     size_t                             m_frontier_xSz;
     std::vector<frontierTilePossibs_t> m_frontierTiles{(m_area_ySize + 3 - m_sqsz) * (m_area_xSize + 3 - m_sqsz),
                                                        frontierTilePossibs_t{}};
-
-
-    size_t m_shapesMaxEmpty = 0;
-
-    std::vector<size_t>                       m_useableCount_perShape;
-    std::vector<double>                       m_shapesRatios_orig;
-    incom::standard::random::FastPseudoRandom m_fprng;
-
-    size_t          m_placedShapes            = 0uz;
-    pastResMap_t    m_pastComputed            = {};
-    std::deque<Pos> m_uncoverableFrontierPoss = {};
 
 
 public:
@@ -1191,6 +1188,12 @@ public:
     void reset_useableShapeCounts(std::vector<size_t> const &shps_counts) {
         m_useableCount_perShape = shps_counts;
         m_useableCount_perShape.resize(m_shapes_alterns.size(), 0);
+        m_shapesRatios_orig =
+            std::views::transform(m_useableCount_perShape,
+                                  [sum = std::max(static_cast<double>(std::ranges::fold_left(m_useableCount_perShape,
+                                                                                             size_t{0}, std::plus{})),
+                                                  1.0)](size_t oneCount) { return oneCount / sum; }) |
+            std::ranges::to<std::vector>();
     }
 
     void reset_pastComputed() noexcept { m_pastComputed.clear(); }
@@ -1249,9 +1252,8 @@ public:
     }
 
 private:
-    [[nodiscard]] static ConsideredShapeOption make_consideredShapeOption(Pos const &p, PastRes const &pr,
-                                                                          ConsideredShapeOption::Type const type) {
-        return ConsideredShapeOption{.p = p, .pr_option = pr, .type = type};
+    [[nodiscard]] static OptionAtPos make_OptionAtPos(Pos const &p, PastRes const &pr, OptionAtPos::Type const type) {
+        return OptionAtPos{.p = p, .altID = pr.ol_shpID, .type = type};
     }
 
     [[nodiscard]] bool has_useableAlternatives(std::vector<PastRes> const &oneShpAltsVec) const {
@@ -1260,11 +1262,11 @@ private:
     }
 
     template <typename Predicate>
-    void collect_consideredOptionsAt(consideredOptionsByShape_t &toConsider, bool &anyFilled,
+    void collect_consideredOptionsAt(consideredOptionsByShape_t &sinkInto, bool &anyFilled,
                                      typename SolverPolicy::SelectionState &selectionState, Pos const &candidatePos,
-                                     possibsByShape_t const           &possibilitiesByShape,
-                                     std::vector<double> const        &perShpScoringAdj,
-                                     ConsideredShapeOption::Type const type, Predicate const &predicate) const {
+                                     possibsByShape_t const    &possibilitiesByShape,
+                                     std::vector<double> const &perShpScoringAdj, OptionAtPos::Type const type,
+                                     Predicate const &predicate) const {
         for (auto const &v_pr2 : std::views::filter(possibilitiesByShape, [this](auto const &oneShpAltsVec) {
                  return has_useableAlternatives(oneShpAltsVec);
              })) {
@@ -1273,9 +1275,9 @@ private:
                 double const curAdjSOR = pr.ol_res.surfaceOpened_relative * perShpScoringAdj.at(pr.ol_shpID.shpID);
 
                 if (selectionState.shouldStopOn(curAdjSOR)) { break; }
-                if (selectionState.hasNewBest(curAdjSOR)) { selectionState.reset(toConsider, curAdjSOR); }
+                if (selectionState.hasNewBest(curAdjSOR)) { selectionState.reset(sinkInto, curAdjSOR); }
 
-                toConsider.at(pr.ol_shpID.shpID).push_back(make_consideredShapeOption(candidatePos, pr, type));
+                sinkInto.at(pr.ol_shpID.shpID).push_back(make_OptionAtPos(candidatePos, pr, type));
                 anyFilled = true;
             }
         }
@@ -1284,14 +1286,13 @@ private:
     std::vector<double> compute_perShapeScoringAdjustments() const {
         double const sum = static_cast<double>(std::ranges::fold_left(m_useableCount_perShape, 0uz, std::plus{}));
 
-        auto ratiosHlprView = std::views::zip(m_useableCount_perShape, m_shapesRatios_orig) |
-                              std::views::transform([&](auto const &oneCount) {
-                                  return (std::get<0>(oneCount) == 0 ? std::numeric_limits<double>::max()
-                                                                     : (sum / std::get<0>(oneCount))) *
-                                         std::get<1>(oneCount);
-                              });
-
-        return std::vector<double>(ratiosHlprView.begin(), ratiosHlprView.end());
+        return std::views::zip(m_useableCount_perShape, m_shapesRatios_orig) |
+               std::views::transform([&](auto const &oneCount) {
+                   return (std::get<0>(oneCount) == 0 ? std::numeric_limits<double>::max()
+                                                      : (sum / std::get<0>(oneCount))) *
+                          std::get<1>(oneCount);
+               }) |
+               std::ranges::to<std::vector>();
     }
 
     possibsByShape_t &getOrCompute_possibsFor(Shape const &tile) {
@@ -1366,7 +1367,7 @@ private:
 
                         collect_consideredOptionsAt(toConsider, anyFilled, selectionState, prPos,
                                                     frontierView[py, px].value().get(), perShpScoringAdj,
-                                                    ConsideredShapeOption::Type::Gapcreating,
+                                                    OptionAtPos::Type::Gapcreating,
                                                     [](auto const &item) { return item.ol_res.gapsCount > 1; });
                     }
                 }
@@ -1409,8 +1410,7 @@ private:
             for (curPos.x = 0uz; curPos.x < m_frontier_xSz; ++curPos.x) {
                 if (auto const &frontierPos = frontierView[curPos.y, curPos.x]) {
                     collect_consideredOptionsAt(toConsider, anyFilled, selectionState, curPos,
-                                                frontierPos.value().get(), perShpScoringAdj,
-                                                ConsideredShapeOption::Type::Gapless,
+                                                frontierPos.value().get(), perShpScoringAdj, OptionAtPos::Type::Gapless,
                                                 [](auto const &item) { return item.ol_res.gapsCount < 2; });
                 }
             }
@@ -1431,10 +1431,9 @@ private:
             for (curPos.x = 0uz; curPos.x < m_frontier_xSz; ++curPos.x) {
                 auto const &frontierPos = frontierView[curPos.y, curPos.x];
                 if (frontierPos != std::nullopt) {
-                    collect_consideredOptionsAt(toConsider, anyFilled, selectionState, curPos,
-                                                frontierPos.value().get(), perShpScoringAdj,
-                                                ConsideredShapeOption::Type::Dividing,
-                                                [](auto const &item) { return item.ol_res.gapsCount < 2; });
+                    collect_consideredOptionsAt(
+                        toConsider, anyFilled, selectionState, curPos, frontierPos.value().get(), perShpScoringAdj,
+                        OptionAtPos::Type::Dividing, [](auto const &item) { return item.ol_res.gapsCount < 2; });
                 }
             }
         }
@@ -1442,8 +1441,7 @@ private:
         return toConsider;
     }
 
-    std::optional<ConsideredShapeOption> select_oneCSO(
-        std::vector<std::vector<ConsideredShapeOption>> const &VofV_csos) {
+    std::optional<OptionAtPos> select_oneCSO(consideredOptionsByShape_t const &VofV_csos) {
         size_t const optsCount = std::ranges::fold_left(
             VofV_csos, size_t{0}, [](size_t init, auto const &VofCSO) { return init + VofCSO.size(); });
         if (optsCount == 0) { return std::nullopt; }
@@ -1452,22 +1450,22 @@ private:
 
         for (auto const &VofCSO : VofV_csos) {
             if (VofCSO.size() < numToConsider) { numToConsider -= VofCSO.size(); }
-            else { return std::optional<ConsideredShapeOption>{VofCSO.at(numToConsider - 1)}; }
+            else { return VofCSO.at(numToConsider - 1); }
         }
         assert(false);
         std::unreachable();
     }
 
-    std::vector<Pos> verify_uncoverable(ConsideredShapeOption const &cso) const {
+    std::vector<Pos> verify_uncoverable(OptionAtPos const &opt) const {
         std::vector<Pos> res{};
         long long const  halfCount = static_cast<long long>(m_shapeOLCount_border / 2);
 
-        auto       olResMat_view = cso.pr_option.ol_res.ol_shp.get_mdspanOfSelf();
+        auto       olResMat_view = get_windowAtPos(opt.p).value().get_mdspanOfSelf();
         auto const frontierView  = get_mdspanOfFrontier();
-        for (long long thisShpRow = cso.p.y; thisShpRow < (cso.p.y + static_cast<long long>(m_sqsz)); ++thisShpRow) {
-            for (long long thisShpCol = cso.p.x; thisShpCol < (cso.p.x + static_cast<long long>(m_sqsz));
+        for (long long thisShpRow = opt.p.y; thisShpRow < (opt.p.y + static_cast<long long>(m_sqsz)); ++thisShpRow) {
+            for (long long thisShpCol = opt.p.x; thisShpCol < (opt.p.x + static_cast<long long>(m_sqsz));
                  ++thisShpCol) {
-                if (olResMat_view[thisShpRow - cso.p.y, thisShpCol - cso.p.x] != 0) { continue; }
+                if (olResMat_view[thisShpRow - opt.p.y, thisShpCol - opt.p.x] != 0) { continue; }
 
                 bool onePointCovered      = false;
                 bool atLeastOneWithoutGap = false;
@@ -1589,6 +1587,18 @@ private:
         for (long long r = shapePos.y; r < (shapePos.y + static_cast<long long>(m_sqsz)); ++r) {
             for (long long c = shapePos.x; c < (shapePos.x + static_cast<long long>(m_sqsz)); ++c) {
                 areaView[r, c] = nw_view[r - shapePos.y, c - shapePos.x];
+            }
+        }
+        return true;
+    }
+    bool add_shapeAtPos(Pos const &shapePos, Shape const &newWindow) {
+        if (! is_posValid(shapePos)) { return false; }
+        auto nw_view  = newWindow.get_mdspanOfSelf();
+        auto areaView = get_mdspanOfArea();
+        for (long long r = shapePos.y; r < (shapePos.y + static_cast<long long>(m_sqsz)); ++r) {
+            for (long long c = shapePos.x; c < (shapePos.x + static_cast<long long>(m_sqsz)); ++c) {
+                areaView[r, c] = nw_view[r - shapePos.y, c - shapePos.x] != 0 ? nw_view[r - shapePos.y, c - shapePos.x]
+                                                                              : areaView[r, c];
             }
         }
         return true;
