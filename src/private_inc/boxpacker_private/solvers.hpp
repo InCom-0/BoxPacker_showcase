@@ -486,7 +486,7 @@ public:
                 auto otherAdj = other;
                 otherAdj.resize_safe(std::max(m_height, other.m_height), std::max(m_width, other.m_width));
 
-                return selfAdj._compute_overlayWith_impl(other);
+                return selfAdj._compute_overlayWith_impl(otherAdj);
             }
         }
 
@@ -692,7 +692,7 @@ public:
         // Return true if resized, returns false otherwise (no change to 'this')
         bool resize_safe(std::optional<size_t> const tarHeight, std::optional<size_t> const tarWidth) {
             size_t const th = tarHeight.value_or(m_height);
-            size_t const tw = tarHeight.value_or(m_width);
+            size_t const tw = tarWidth.value_or(m_width);
 
             if ((th == m_height) && (tw == m_width)) {
                 return false; // Cannot resize
@@ -706,7 +706,7 @@ public:
         bool resize_safe(std::optional<size_t> const tarHeight, std::optional<size_t> const tarWidth,
                          size_t const borderThickness) {
             size_t const th = tarHeight.value_or(m_height);
-            size_t const tw = tarHeight.value_or(m_width);
+            size_t const tw = tarWidth.value_or(m_width);
 
             if ((borderThickness > th) || (borderThickness > tw) || ((th == m_height) && (tw == m_width))) {
                 return false; // Cannot resize
@@ -975,8 +975,8 @@ public:
                                                     1.0)](size_t oneCount) { return oneCount / sum; }) |
               std::ranges::to<std::vector>()),
           m_area_ySize(area_ySize + (2 * m_sqsz - 4)), m_area_xSize(area_xSize + (2 * m_sqsz - 4)),
-          m_area(m_area_ySize * m_area_xSize, 0), m_frontier_ySz(area_ySize + 1 - m_sqsz),
-          m_frontier_xSz(area_xSize + 1 - m_sqsz),
+          m_area(m_area_ySize * m_area_xSize, 0), m_frontier_ySz(m_area_ySize + 1 - m_sqsz),
+          m_frontier_xSz(m_area_xSize + 1 - m_sqsz),
           m_frontierTiles(m_frontier_ySz * m_frontier_xSz, frontierTilePossibs_t{}),
 
 
@@ -1201,7 +1201,10 @@ public:
             std::ranges::to<std::vector>();
     }
 
-    void reset_pastComputed() noexcept { m_pastComputed.clear(); }
+    void reset_pastComputed() noexcept {
+        m_pastComputed.clear();
+        reset_frontier();
+    }
 
 public:
     size_t erase_fromFrontier(std::vector<Pos> const &shapePoss) {
