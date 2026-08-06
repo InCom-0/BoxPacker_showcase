@@ -86,14 +86,19 @@ public:
         size_t      m_width  = 0uz;
         matrix_type m_matrix;
 
+
         auto operator<=>(Shape const &other) const = default;
-        auto get_mdspanOfSelf() const {
+
+        auto get_mdspanOfSelf() &&       = delete;
+        auto get_mdspanOfSelf() const && = delete;
+        auto get_mdspanOfSelf() & {
+            return polyfills::mdspan<unsigned char, polyfills::dextents<size_t, 2>>(m_matrix.data(), m_height, m_width);
+        }
+        auto get_mdspanOfSelf() const & {
             return polyfills::mdspan<const unsigned char, polyfills::dextents<size_t, 2>>(m_matrix.data(), m_height,
                                                                                           m_width);
         }
-        auto get_mdspanOfSelf() {
-            return polyfills::mdspan<unsigned char, polyfills::dextents<size_t, 2>>(m_matrix.data(), m_height, m_width);
-        }
+
 
     private:
         // bool _upsize(std::optional<size_t> const tarHeight, std::optional<size_t> const tarWidth);
@@ -1429,11 +1434,10 @@ private:
         auto const frontierView = get_mdspanOfFrontier();
         for (curPos.y = 0uz; curPos.y < m_frontier_ySz; ++curPos.y) {
             for (curPos.x = 0uz; curPos.x < m_frontier_xSz; ++curPos.x) {
-                auto const &frontierPos = frontierView[curPos.y, curPos.x];
-                if (frontierPos != std::nullopt) {
+                if (auto const &frontierPos = frontierView[curPos.y, curPos.x]) {
                     collect_consideredOptionsAt(
                         toConsider, anyFilled, selectionState, curPos, frontierPos.value().get(), perShpScoringAdj,
-                        OptionAtPos::Type::Dividing, [](auto const &item) { return item.ol_res.gapsCount < 2; });
+                        OptionAtPos::Type::Dividing, [](auto const &item) { return item.ol_res.gapsCount > 1; });
                 }
             }
         }
@@ -1460,8 +1464,9 @@ private:
         std::vector<Pos> res{};
         long long const  halfCount = static_cast<long long>(m_shapeOLCount_border / 2);
 
-        auto       olResMat_view = get_windowAtPos(opt.p).value().get_mdspanOfSelf();
-        auto const frontierView  = get_mdspanOfFrontier();
+        auto       window_previous = get_windowAtPos(opt.p).value();
+        auto       olResMat_view   = window_previous.get_mdspanOfSelf();
+        auto const frontierView    = get_mdspanOfFrontier();
         for (long long thisShpRow = opt.p.y; thisShpRow < (opt.p.y + static_cast<long long>(m_sqsz)); ++thisShpRow) {
             for (long long thisShpCol = opt.p.x; thisShpCol < (opt.p.x + static_cast<long long>(m_sqsz));
                  ++thisShpCol) {
@@ -1482,14 +1487,7 @@ private:
                             size_t const computedID = ((m_sqsz * (thisShpRow - influRow)) + (thisShpCol - influCol));
 
                             for (PastRes const &onePR : prLine) {
-                                onePointCovered |= onePR.ol_res.ol_shp.m_matrix.at(computedID);
-
-                                // onePointCovered |=
-                                //     onePR.ol_res.res_matrix
-                                //         .at((m_sqsz - 2) -
-                                //             (influRow - (thisShpRow - (static_cast<long long>(m_sqsz) - 2))))
-                                //         .at((m_sqsz - 2) -
-                                //             (influCol - (thisShpCol - (static_cast<long long>(m_sqsz) - 2))));
+                                onePointCovered      |= onePR.ol_res.ol_shp.m_matrix.at(computedID);
                                 atLeastOneWithoutGap |= (onePR.ol_res.gapsCount < 2);
                             }
                         }
@@ -1631,29 +1629,6 @@ private:
         XXH64_hash_t result = XXH3_64bits_digest(state);
         XXH3_freeState(state);
         return result;
-    }
-
-public:
-    template <size_t N>
-    static std::vector<std::array<std::array<bool, N>, N>> calculate_rotFlipped(
-        std::array<std::array<bool, N>, N> input) {
-        namespace incmatrix = incom::standard::matrix;
-
-        ankerl::unordered_dense::set<decltype(input), standard::hashing::XXH3Hasher> hlprMP;
-        hlprMP.insert(input);
-        for (int rot_i = 0; rot_i < 3; ++rot_i) {
-            incmatrix::matrixRotateLeft(input);
-            hlprMP.insert(input);
-        }
-
-        for (size_t i = 0; i < (input.size() / 2); ++i) { std::swap(input.at(i), input.at(input.size() - 1 - i)); }
-
-        hlprMP.insert(input);
-        for (int rot_i = 0; rot_i < 3; ++rot_i) {
-            incmatrix::matrixRotateLeft(input);
-            hlprMP.insert(input);
-        }
-        return std::vector<decltype(input)>(hlprMP.begin(), hlprMP.end());
     }
 };
 
