@@ -259,19 +259,14 @@ public:
 
             Shape gapPastMemo    = Shape::make(h, w);
             Shape filledPastMemo = Shape::make(h, w);
-            Shape curMemo        = Shape::make(h, w);
 
             auto mv_gapPastMemo    = gapPastMemo.get_mdspanOfSelf();
             auto mv_filledPastMemo = filledPastMemo.get_mdspanOfSelf();
-            auto mv_curMemo        = curMemo.get_mdspanOfSelf();
 
             Pos curPos{.y = 0, .x = 0};
 
             auto gapsRecLambda = [&](this auto const &self) -> bool {
-                if (mv_res[curPos.y, curPos.x] != 0) { return true; }
-                if (mv_curMemo[curPos.y, curPos.x] != 0) { return true; }
-                mv_curMemo[curPos.y, curPos.x] = 1;
-
+                if (mv_res[curPos.y, curPos.x] != 0) { return false; }
                 if (mv_gapPastMemo[curPos.y, curPos.x] != 0) { return false; }
                 mv_gapPastMemo[curPos.y, curPos.x] = 1;
 
@@ -282,7 +277,7 @@ public:
                     }
                     curPos.y += row;
                     curPos.x += col;
-                    if (! self()) { return false; }
+                    self();
                     curPos.y -= row;
                     curPos.x -= col;
                 }
@@ -290,10 +285,7 @@ public:
             };
 
             auto filledRecLambda = [&](this auto const &self) -> bool {
-                if (mv_res[curPos.y, curPos.x] == 0) { return true; }
-                if (mv_curMemo[curPos.y, curPos.x] != 0) { return true; }
-                mv_curMemo[curPos.y, curPos.x] = 1;
-
+                if (mv_res[curPos.y, curPos.x] == 0) { return false; }
                 if (mv_filledPastMemo[curPos.y, curPos.x] != 0) { return false; }
                 mv_filledPastMemo[curPos.y, curPos.x] = 1;
 
@@ -304,7 +296,7 @@ public:
                     }
                     curPos.y += row;
                     curPos.x += col;
-                    if (! self()) { return false; }
+                    self();
                     curPos.y -= row;
                     curPos.x -= col;
                 }
@@ -313,18 +305,13 @@ public:
 
             for (size_t r = 0; r < h; ++r) {
                 for (size_t c = 0; c < w; ++c) {
-                    if (mv_res[r, c] == 0 && mv_gapPastMemo[r, c] == 0) {
-                        curPos.y = static_cast<long long>(r);
-                        curPos.x = static_cast<long long>(c);
-                        curMemo.reset();
-                        res.gapsCount += gapsRecLambda();
-                    }
-                    if (mv_res[r, c] != 0 && mv_filledPastMemo[r, c] == 0) {
-                        curPos.y = static_cast<long long>(r);
-                        curPos.x = static_cast<long long>(c);
-                        curMemo.reset();
-                        res.shapesCount += filledRecLambda();
-                    }
+                    curPos.y       = static_cast<long long>(r);
+                    curPos.x       = static_cast<long long>(c);
+                    res.gapsCount += gapsRecLambda();
+
+                    curPos.y         = static_cast<long long>(r);
+                    curPos.x         = static_cast<long long>(c);
+                    res.shapesCount += filledRecLambda();
                 }
             }
 
