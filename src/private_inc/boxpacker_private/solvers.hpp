@@ -214,14 +214,14 @@ public:
 
             auto const mv       = one.get_mdspanOfSelf();
             auto const mv_other = other.get_mdspanOfSelf();
-            auto const mv_res   = res.ol_shp.get_mdspanOfSelf();
+            auto       mv_res   = res.ol_shp.get_mdspanOfSelf();
 
 
             for (size_t r = 0; r < h; ++r) {
                 for (size_t c = 0; c < w; ++c) {
                     res.pointsOverlaid += (mv[r, c] != 0) && (mv_other[r, c] != 0);
                     res.pointsAdded    += (mv[r, c] == 0) && (mv_other[r, c] != 0);
-                    mv_res[r, c]        = (mv[r, c] != 0 || mv_other[r, c] != 0) ? 1 : 0;
+                    mv_res[r, c]        = (mv[r, c] != 0 || mv_other[r, c] != 0);
                 }
             }
 

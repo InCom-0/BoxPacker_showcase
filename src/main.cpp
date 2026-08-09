@@ -736,12 +736,14 @@ int main(int, char **) {
 
                             ImGui::TableSetColumnIndex(2);
                             ImGui::PushID(row * 3 + 2);
-                            if (ImGui::SmallButton("D")) { idToDel = row; }
+                            if (ImGui::SmallButton("D")) { idToDel = static_cast<size_t>(row); }
                             ImGui::PopID();
                         }
-                        if (idToDel) { planTrees.erase(planTrees.begin() + idToDel.value()); }
                     }
                     clipper.End();
+                    if (idToDel && idToDel.value() < planTrees.size()) {
+                        planTrees.erase(planTrees.begin() + static_cast<std::ptrdiff_t>(idToDel.value()));
+                    }
                     ImGui::EndTable();
                 }
 
