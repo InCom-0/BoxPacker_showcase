@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <deque>
 #include <functional>
+#include <iostream>
 #include <limits>
 #include <optional>
 #include <ranges>
@@ -97,6 +98,19 @@ public:
         auto get_mdspanOfSelf() const & {
             return polyfills::mdspan<const unsigned char, polyfills::dextents<size_t, 2>>(m_matrix.data(), m_height,
                                                                                           m_width);
+        }
+
+        std::string get_areaState() const {
+            std::string                   toPrint{};
+            constexpr std::array<char, 3> map{46, 35, 118};
+
+            auto area_view = get_mdspanOfSelf();
+
+            for (size_t lineID = 0uz; lineID < m_height; ++lineID) {
+                for (size_t colID = 0uz; colID < m_width; ++colID) { toPrint.push_back(map[area_view[lineID, colID]]); }
+                toPrint.push_back('\n');
+            }
+            return toPrint;
         }
 
 
@@ -284,6 +298,20 @@ public:
                 return true;
             };
 
+            auto gapLaunch = [&]() {
+                size_t res = 0uz;
+                if (mv_other[curPos.y, curPos.x] != 0) {
+                    for (auto const &[row, col] : explorers::directions::get_dirChanges_2D()) {
+                        curPos.y += row;
+                        curPos.x += col;
+                        res      += gapsRecLambda();
+                        curPos.y -= row;
+                        curPos.x -= col;
+                    }
+                }
+                return res;
+            };
+
             auto filledRecLambda = [&](this auto const &self) -> bool {
                 if (mv_res[curPos.y, curPos.x] == 0) { return false; }
                 if (mv_filledPastMemo[curPos.y, curPos.x] != 0) { return false; }
@@ -307,7 +335,7 @@ public:
                 for (size_t c = 0; c < w; ++c) {
                     curPos.y       = static_cast<long long>(r);
                     curPos.x       = static_cast<long long>(c);
-                    res.gapsCount += gapsRecLambda();
+                    res.gapsCount += gapLaunch();
 
                     curPos.y         = static_cast<long long>(r);
                     curPos.x         = static_cast<long long>(c);
@@ -1325,12 +1353,8 @@ private:
             Pos const seed = m_uncoverableFrontierPoss.front();
 
             if (seed.y < 0 || seed.x < 0 || seed.y >= static_cast<long long>(m_area_ySize) ||
-                seed.x >= static_cast<long long>(m_area_xSize)) {
-                m_uncoverableFrontierPoss.pop_front();
-                continue;
-            }
-
-            if (areaView[static_cast<size_t>(seed.y), static_cast<size_t>(seed.x)] != 0) {
+                seed.x >= static_cast<long long>(m_area_xSize) ||
+                areaView[static_cast<size_t>(seed.y), static_cast<size_t>(seed.x)] != 0) {
                 m_uncoverableFrontierPoss.pop_front();
                 continue;
             }
@@ -1360,10 +1384,9 @@ private:
 
                         if (! frontierView[py, px].has_value()) { continue; }
 
-                        collect_consideredOptionsAt(toConsider, anyFilled, selectionState, prPos,
-                                                    frontierView[py, px].value().get(), perShpScoringAdj,
-                                                    OptionAtPos::Type::Gapcreating,
-                                                    [](auto const &item) { return item.ol_res.gapsCount > 1; });
+                        collect_consideredOptionsAt(
+                            toConsider, anyFilled, selectionState, prPos, frontierView[py, px].value().get(),
+                            perShpScoringAdj, OptionAtPos::Type::Gapcreating, [](auto const &item) { return true; });
                     }
                 }
 
@@ -1470,15 +1493,17 @@ private:
                     for (long long influCol = thisShpCol - (static_cast<long long>(m_sqsz) - 2); influCol < thisShpCol;
                          ++influCol) {
                         if (! is_posValid(Pos{.y = influRow, .x = influCol})) { continue; }
-
-
-                        if (! frontierView[influRow, influCol].has_value()) { continue; }
-                        for (auto const &prLine : frontierView[influRow, influCol].value().get()) {
+                        else if (! frontierView[influRow, influCol].has_value()) { continue; }
+                        else {
                             size_t const computedID = ((m_sqsz * (thisShpRow - influRow)) + (thisShpCol - influCol));
 
-                            for (PastRes const &onePR : prLine) {
-                                onePointCovered      |= onePR.ol_res.ol_shp.m_matrix.at(computedID);
-                                atLeastOneWithoutGap |= (onePR.ol_res.gapsCount < 2);
+                            auto frr = frontierView[influRow, influCol].value().get();
+
+                            for (auto const &prLine : frontierView[influRow, influCol].value().get()) {
+                                for (PastRes const &onePR : prLine) {
+                                    onePointCovered      |= onePR.ol_res.ol_shp.m_matrix.at(computedID);
+                                    atLeastOneWithoutGap |= (onePR.ol_res.gapsCount < 2);
+                                }
                             }
                         }
                     }

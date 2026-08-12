@@ -495,6 +495,13 @@ int main(int, char **) {
                             // Invalid, no shapes to place ... makes no sense to solve for that
                         }
                         else {
+                            // for (size_t id = 0uz; id < shpsForBP.size(); ++id) {
+                            //     std::cout << id << ':' << '\n';
+                            //     for (size_t shpAltID = 0uz; shpAltID < shpsForBP.at(id).size(); ++shpAltID) {
+                            //         std::cout << shpsForBP.at(id).at(shpAltID).get_areaState() << '\n';
+                            //     }
+                            // }
+
                             jobs.push_back(std::make_pair(
                                 incom::standard::async::spawn_uptr(
                                     incom::box_packer::bp_asyncExecute, tPool_workSch, planTrees, shpsForBP,
