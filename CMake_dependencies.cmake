@@ -6,18 +6,21 @@ CPMAddPackage("gh:hanickadot/compile-time-regular-expressions@3.11.0")
 
 
 CPMAddPackage(
-    URL https://github.com/cameron314/readerwriterqueue/archive/refs/tags/v1.0.7.tar.gz
-    URL_HASH SHA256=532224ed052bcd5f4c6be0ed9bb2b8c88dfe7e26e3eb4dd9335303b059df6691
+    URL
+        https://github.com/cameron314/readerwriterqueue/archive/refs/tags/v1.0.7.tar.gz
+        URL_HASH
+        SHA256=532224ed052bcd5f4c6be0ed9bb2b8c88dfe7e26e3eb4dd9335303b059df6691
     EXCLUDE_FROM_ALL TRUE
     NAME readerwriterqueue
 )
 CPMAddPackage(
-    URL https://github.com/NVIDIA/stdexec/archive/refs/tags/nvhpc-26.05.tar.gz
-    URL_HASH SHA256=9d2396fecd604698c1eae58f0cb6e4517aa727013846240d1a7b2f35e49884dc
+    URL
+        https://github.com/NVIDIA/stdexec/archive/refs/tags/nvhpc-26.05.tar.gz
+        URL_HASH
+        SHA256=9d2396fecd604698c1eae58f0cb6e4517aa727013846240d1a7b2f35e49884dc
     EXCLUDE_FROM_ALL TRUE
     NAME stdexec
 )
-
 
 #####################################################################
 ### ImGui related ###
@@ -33,7 +36,6 @@ CPMAddPackage(
 #     add_library(Freetype::Freetype ALIAS freetype)
 # endif()
 
-
 #################################################################################################
 ### SDL2 ... for when we will be able to compile with MSVC (when MSVC supports pack indexing) ###
 #################################################################################################
@@ -45,7 +47,6 @@ CPMAddPackage(
 #   EXCLUDE_FROM_ALL TRUE
 # )
 
-
 # ImGui
 # CMakeLists.txt from https://gist.githubusercontent.com/rokups/f771217b2d530d170db5cb1e08e9a8f4
 # 1) Download third-party CMakeLists (the above)
@@ -55,9 +56,7 @@ CPMAddPackage(
 set(IMGUI_EXTERNAL_CMAKELISTS_FILE
     "${CMAKE_BINARY_DIR}/_deps/imgui_rokups_CMakeLists.txt"
 )
-file(
-    DOWNLOAD
-    "https://gist.githubusercontent.com/rokups/f771217b2d530d170db5cb1e08e9a8f4/raw/4c2c14374ab878ca2f45daabfed4c156468e4e27/CMakeLists.txt"
+file(DOWNLOAD "https://gist.githubusercontent.com/rokups/f771217b2d530d170db5cb1e08e9a8f4/raw/4c2c14374ab878ca2f45daabfed4c156468e4e27/CMakeLists.txt"
     "${IMGUI_EXTERNAL_CMAKELISTS_FILE}"
     EXPECTED_HASH SHA256=fd62f69364ce13a4f7633a9b50ae6672c466bcc44be60c69c45c0c6e225bb086
 )
@@ -87,7 +86,9 @@ CPMAddPackage(
     EXCLUDE_FROM_ALL TRUE
     SYSTEM TRUE
     PATCH_COMMAND
-    ${CMAKE_COMMAND} -E copy_if_different
+    ${CMAKE_COMMAND}
+    -E
+    copy_if_different
     "${IMGUI_EXTERNAL_CMAKELISTS_FILE}"
     "<SOURCE_DIR>/CMakeLists.txt"
 )
@@ -98,3 +99,13 @@ unset(IMGUI_IMPL_GLUT)
 unset(IMGUI_IMPL_VULKAN)
 unset(IMGUI_ENABLE_STDLIB_SUPPORT)
 unset(IMGUI_IMPL_OPENGL2)
+
+
+CPMAddPackage(
+    URI
+    "gh:wolfpld/tracy@0.14.0"
+    NAME tracy
+    GIT_SHALLOW TRUE
+    GIT_PROGRESS
+    TRUE
+)

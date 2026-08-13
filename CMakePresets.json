@@ -144,6 +144,14 @@
             ]
         },
         {
+            "name": "gcc_TRACY_Release",
+            "hidden": false,
+            "inherits": [
+                "gcc_Release",
+                "_tracy_profiler"
+            ]
+        },
+        {
             "name": "gcc_None",
             "hidden": false,
             "inherits": [
@@ -282,6 +290,14 @@
                         "miDebuggerPath": "C:/msys64/clang64/bin/gdb.exe"
                     }
                 }
+            }
+        },
+        {
+            "name": "_tracy_profiler",
+            "hidden": true,
+            "cacheVariables": {
+                "CMAKE_CXX_FLAGS": "-DTRACY_ENABLE -DTRACY_NO_EXIT",
+                "TRACY_ENABLE": true
             }
         }
     ]
