@@ -1497,8 +1497,6 @@ private:
                         else {
                             size_t const computedID = ((m_sqsz * (thisShpRow - influRow)) + (thisShpCol - influCol));
 
-                            auto frr = frontierView[influRow, influCol].value().get();
-
                             for (auto const &prLine : frontierView[influRow, influCol].value().get()) {
                                 for (PastRes const &onePR : prLine) {
                                     onePointCovered      |= onePR.ol_res.ol_shp.m_matrix.at(computedID);

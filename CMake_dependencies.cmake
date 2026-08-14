@@ -100,12 +100,16 @@ unset(IMGUI_IMPL_VULKAN)
 unset(IMGUI_ENABLE_STDLIB_SUPPORT)
 unset(IMGUI_IMPL_OPENGL2)
 
-
-CPMAddPackage(
-    URI
-    "gh:wolfpld/tracy@0.14.0"
-    NAME tracy
-    GIT_SHALLOW TRUE
-    GIT_PROGRESS
-    TRUE
-)
+if(TRACY_ENABLE)
+    CPMAddPackage(
+        URI
+        "gh:wolfpld/tracy@0.14.0"
+        NAME tracy
+        GIT_SHALLOW TRUE
+        GIT_PROGRESS TRUE
+        OPTIONS
+            "TRACY_ENABLE ON"
+            "TRACY_NO_EXIT ${TRACY_NO_EXIT}"
+            "TRACY_ON_DEMAND ${TRACY_ON_DEMAND}"
+    )
+endif()

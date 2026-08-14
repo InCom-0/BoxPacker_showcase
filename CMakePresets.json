@@ -65,11 +65,9 @@
             "name": "Win_MSVC_Release_TRACY",
             "hidden": false,
             "inherits": [
-                "Win_MSVC_Release"
-            ],
-            "cacheVariables": {
-                "CMAKE_CXX_FLAGS": "-DTRACY_ENABLE -DTRACY_NO_EXIT"
-            }
+                "Win_MSVC_Release",
+                "_tracy_profiler"
+            ]
         },
         {
             "name": "Win_clang-cl_Debug",
@@ -296,7 +294,6 @@
             "name": "_tracy_profiler",
             "hidden": true,
             "cacheVariables": {
-                "CMAKE_CXX_FLAGS": "-DTRACY_ENABLE -DTRACY_NO_EXIT",
                 "TRACY_ENABLE": true
             }
         }

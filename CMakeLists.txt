@@ -28,6 +28,10 @@ set(
         "Emscripten pthread pool exhaustion behavior (2 = throw explicit error)"
 )
 
+option(TRACY_ENABLE "Enable Tracy profiling integration" OFF) # Also controlled through *_TRACY_* CMake presets
+option(TRACY_NO_EXIT "Tracy client waits to flush data on exit" OFF)
+option(TRACY_ON_DEMAND "Only start collecting data when the server is connected" ON)
+
 include(cmake/incom/sccacheFinder.cmake)
 configure_sccache()
 
@@ -163,6 +167,15 @@ endif()
 target_link_libraries(boxpacker_showcase PRIVATE incstd::incstd ctre::ctre)
 target_link_libraries(boxpacker_showcase PRIVATE imgui imgui-sdl2 imgui-opengl3)
 target_link_libraries(boxpacker_showcase PRIVATE STDEXEC::stdexec readerwriterqueue)
+
+if(TRACY_ENABLE)
+    if(TARGET Tracy::TracyClient)
+        target_link_libraries(boxpacker_showcase PUBLIC Tracy::TracyClient)
+        target_compile_definitions(boxpacker_showcase PUBLIC TRACY_ENABLE)
+    else()
+        message(FATAL_ERROR "TRACY_ENABLE=ON but Tracy::TracyClient target is missing")
+    endif()
+endif()
 
 if(EMSCRIPTEN)
     target_compile_options(boxpacker_showcase PUBLIC -sUSE_SDL=2)

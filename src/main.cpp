@@ -237,7 +237,7 @@ int main(int, char **) {
     std::vector<incom::box_packer::Tree> planTrees;
 
 
-    exec::static_thread_pool tPool_work{8};
+    exec::static_thread_pool tPool_work{2};
     auto                     tPool_workSch = tPool_work.get_scheduler();
 
     std::vector<std::pair<std::unique_ptr<decltype(incom::standard::async::spawn(
