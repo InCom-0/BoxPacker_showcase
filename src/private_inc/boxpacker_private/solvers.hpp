@@ -219,34 +219,31 @@ public:
 
         constexpr Overlay _compute_overlayWith_impl(Shape const &other) const {
             Shape const &one = *this;
-
             Overlay      res{.ol_shp{Shape::make(one.m_height, one.m_width)}};
-            size_t const h = one.m_height;
-            size_t const w = one.m_width;
 
-            if (h == 0uz or w == 0uz) { return res; } // Early exit
+            if (one.m_height == 0uz or one.m_width == 0uz) { return res; } // Early exit
 
             auto const mv       = one.get_mdspanOfSelf();
             auto const mv_other = other.get_mdspanOfSelf();
             auto       mv_res   = res.ol_shp.get_mdspanOfSelf();
 
 
-            for (size_t r = 0; r < h; ++r) {
-                for (size_t c = 0; c < w; ++c) {
+            for (size_t r = 0; r < one.m_height; ++r) {
+                for (size_t c = 0; c < one.m_width; ++c) {
                     res.pointsOverlaid += (mv[r, c] != 0) && (mv_other[r, c] != 0);
                     res.pointsAdded    += (mv[r, c] == 0) && (mv_other[r, c] != 0);
                     mv_res[r, c]        = (mv[r, c] != 0 || mv_other[r, c] != 0);
                 }
             }
 
-            Shape touch    = Shape::make(h, w);
-            Shape notTouch = Shape::make(h, w);
+            Shape touch    = Shape::make(one.m_height, one.m_width);
+            Shape notTouch = Shape::make(one.m_height, one.m_width);
 
             auto mv_touch    = touch.get_mdspanOfSelf();
             auto mv_notTouch = notTouch.get_mdspanOfSelf();
 
-            for (size_t r = 1; r < h - 1; ++r) {
-                for (size_t c = 1; c < w - 1; ++c) {
+            for (size_t r = 1; r < one.m_height - 1; ++r) {
+                for (size_t c = 1; c < one.m_width - 1; ++c) {
                     if (mv_other[r, c] == 0) { continue; }
 
                     res.bordersTouching += (mv[r - 1, c] != 0) && (mv_other[r - 1, c] == 0);
@@ -271,71 +268,102 @@ public:
                 }
             }
 
-            Shape gapPastMemo    = Shape::make(h, w);
-            Shape filledPastMemo = Shape::make(h, w);
+            Shape gapPastMemo    = res.ol_shp;
+            Shape filledPastMemo = res.ol_shp;
 
-            auto mv_gapPastMemo    = gapPastMemo.get_mdspanOfSelf();
-            auto mv_filledPastMemo = filledPastMemo.get_mdspanOfSelf();
+            auto const &mv_gapMemo = gapPastMemo.get_mdspanOfSelf();
 
-            Pos curPos{.y = 0, .x = 0};
+            auto &gapMemo    = gapPastMemo.m_matrix;
+            auto &filledMemo = filledPastMemo.m_matrix;
 
-            auto gapsRecLambda = [&](this auto const &self) -> bool {
-                if (mv_res[curPos.y, curPos.x] != 0) { return false; }
-                else if (mv_gapPastMemo[curPos.y, curPos.x] != 0) { return false; }
-                else {
-                    mv_gapPastMemo[curPos.y, curPos.x] = 1;
+            std::vector<std::pair<int, int>> stack;
+            stack.reserve(std::min<size_t>(one.m_height, one.m_width));
 
-                    for (auto const &[row, col] : explorers::directions::get_dirChanges_2D()) {
-                        if (curPos.y + row < 0 || curPos.y + row >= static_cast<long long>(h) || curPos.x + col < 0 ||
-                            curPos.x + col >= static_cast<long long>(w)) {
-                            continue;
-                        }
-                        curPos.y += row;
-                        curPos.x += col;
-                        self();
-                        curPos.y -= row;
-                        curPos.x -= col;
+            auto flood_gap_component = [&](int const row, int const col) -> bool {
+                stack.clear();
+                stack.emplace_back(row, col);
+                mv_gapMemo[row, col] = 1;
+
+                while (! stack.empty()) {
+                    auto const [r, c] = std::move(stack.back());
+                    stack.pop_back();
+
+                    if (r > 0 && (mv_gapMemo[r - 1, c] == 0)) {
+                        mv_gapMemo[r - 1, c] = 1;
+                        stack.emplace_back(r - 1, c);
                     }
-                    return true;
+                    if ((r + 1) < m_height && (mv_gapMemo[r + 1, c] == 0)) {
+                        mv_gapMemo[r + 1, c] = 1;
+                        stack.emplace_back(r + 1, c);
+                    }
+
+                    if (c > 0 && (mv_gapMemo[r, c - 1] == 0)) {
+                        mv_gapMemo[r, c - 1] = 1;
+                        stack.emplace_back(r, c - 1);
+                    }
+                    if ((c + 1) < m_width && (mv_gapMemo[r, c + 1] == 0)) {
+                        mv_gapMemo[r, c + 1] = 1;
+                        stack.emplace_back(r, c + 1);
+                    }
                 }
+                return true;
             };
 
-            auto filledRecLambda = [&](this auto const &self) -> bool {
-                if (mv_res[curPos.y, curPos.x] == 0) { return false; }
-                else if (mv_filledPastMemo[curPos.y, curPos.x] != 0) { return false; }
-                else {
-                    mv_filledPastMemo[curPos.y, curPos.x] = 1;
-
-                    for (auto const &[row, col] : explorers::directions::get_dirChanges_2D()) {
-                        if (curPos.y + row < 0 || curPos.y + row >= static_cast<long long>(h) || curPos.x + col < 0 ||
-                            curPos.x + col >= static_cast<long long>(w)) {
-                            continue;
-                        }
-                        curPos.y += row;
-                        curPos.x += col;
-                        self();
-                        curPos.y -= row;
-                        curPos.x -= col;
-                    }
-
-                    return true;
+            auto flood_gap_launcher = [&](int const row, int const col) -> size_t {
+                size_t res;
+                if (row > 0 && mv_gapMemo[(row - 1), col] == 0) { res += flood_gap_component(row - 1, col); }
+                if ((row + 1) < m_height && mv_gapMemo[(row + 1), col] == 0) {
+                    res += flood_gap_component(row + 1, col);
                 }
+                if (col > 0 && mv_gapMemo[row, col - 1] == 0) { res += flood_gap_component(row, col - 1); }
+                if ((col + 1) < m_width && mv_gapMemo[row, col + 1] == 0) { res += flood_gap_component(row, col + 1); }
+                return res;
             };
 
-            for (curPos.y = 0ll; curPos.y < h; ++curPos.y) {
-                for (curPos.x = 0ll; curPos.x < w; ++curPos.x) {
-                    if (mv_other[curPos.y, curPos.x] != 0) {
-                        for (auto const &[row, col] : explorers::directions::get_dirChanges_2D()) {
-                            curPos.y      += row;
-                            curPos.x      += col;
-                            res.gapsCount += gapsRecLambda();
-                            curPos.y      -= row;
-                            curPos.x      -= col;
-                        }
+            auto flood_filled_component = [&](int const row, int const col) -> bool {
+                stack.clear();
+                stack.emplace_back(row, col);
+                filledMemo[(row * m_width) + col] = 0;
+
+                while (! stack.empty()) {
+                    auto const [r, c] = std::move(stack.back());
+                    stack.pop_back();
+                    size_t const idx = (r * m_width) + c;
+
+                    if (r > 0 && (filledMemo[idx - m_width] != 0)) {
+                        filledMemo[idx - m_width] = 0;
+                        stack.emplace_back(r - 1, c);
                     }
-                    res.shapesCount += filledRecLambda();
+                    if (r < (m_height - 1) && (filledMemo[idx + m_width] != 0)) {
+                        filledMemo[idx + m_width] = 0;
+                        stack.emplace_back(r + 1, c);
+                    }
+                    if (c > 0 && (filledMemo[idx - 1] != 0)) {
+                        filledMemo[idx - 1] = 0;
+                        stack.emplace_back(r, c - 1);
+                    }
+                    if ((c + 1) < m_width && (filledMemo[idx + 1] != 0)) {
+                        filledMemo[idx + 1] = 0;
+                        stack.emplace_back(r, c + 1);
+                    }
+                }
+                return true;
+            };
+
+            for (int row = 0; row < m_height; ++row) {
+                for (int col = 0; col < m_width; ++col) {
+                    if (other.m_matrix[(row * m_width) + col] != 0) { res.gapsCount += flood_gap_launcher(row, col); }
                 }
             }
+
+            for (int row = 0; row < m_height; ++row) {
+                for (int col = 0; col < m_width; ++col) {
+                    if (filledMemo[(row * m_width) + col] != 0 && flood_filled_component(row, col)) {
+                        res.shapesCount++;
+                    }
+                }
+            }
+
 
             res.pointsTouching    = touch.count_filled();
             res.pointsNotTouching = notTouch.count_filled();
