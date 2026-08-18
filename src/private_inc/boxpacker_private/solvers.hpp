@@ -281,64 +281,58 @@ public:
 
             auto gapsRecLambda = [&](this auto const &self) -> bool {
                 if (mv_res[curPos.y, curPos.x] != 0) { return false; }
-                if (mv_gapPastMemo[curPos.y, curPos.x] != 0) { return false; }
-                mv_gapPastMemo[curPos.y, curPos.x] = 1;
+                else if (mv_gapPastMemo[curPos.y, curPos.x] != 0) { return false; }
+                else {
+                    mv_gapPastMemo[curPos.y, curPos.x] = 1;
 
-                for (auto const &[row, col] : explorers::directions::get_dirChanges_2D()) {
-                    if (curPos.y + row < 0 || curPos.y + row >= static_cast<long long>(h) || curPos.x + col < 0 ||
-                        curPos.x + col >= static_cast<long long>(w)) {
-                        continue;
-                    }
-                    curPos.y += row;
-                    curPos.x += col;
-                    self();
-                    curPos.y -= row;
-                    curPos.x -= col;
-                }
-                return true;
-            };
-
-            auto gapLaunch = [&]() {
-                size_t res = 0uz;
-                if (mv_other[curPos.y, curPos.x] != 0) {
                     for (auto const &[row, col] : explorers::directions::get_dirChanges_2D()) {
+                        if (curPos.y + row < 0 || curPos.y + row >= static_cast<long long>(h) || curPos.x + col < 0 ||
+                            curPos.x + col >= static_cast<long long>(w)) {
+                            continue;
+                        }
                         curPos.y += row;
                         curPos.x += col;
-                        res      += gapsRecLambda();
+                        self();
                         curPos.y -= row;
                         curPos.x -= col;
                     }
+                    return true;
                 }
-                return res;
             };
 
             auto filledRecLambda = [&](this auto const &self) -> bool {
                 if (mv_res[curPos.y, curPos.x] == 0) { return false; }
-                if (mv_filledPastMemo[curPos.y, curPos.x] != 0) { return false; }
-                mv_filledPastMemo[curPos.y, curPos.x] = 1;
+                else if (mv_filledPastMemo[curPos.y, curPos.x] != 0) { return false; }
+                else {
+                    mv_filledPastMemo[curPos.y, curPos.x] = 1;
 
-                for (auto const &[row, col] : explorers::directions::get_dirChanges_2D()) {
-                    if (curPos.y + row < 0 || curPos.y + row >= static_cast<long long>(h) || curPos.x + col < 0 ||
-                        curPos.x + col >= static_cast<long long>(w)) {
-                        continue;
+                    for (auto const &[row, col] : explorers::directions::get_dirChanges_2D()) {
+                        if (curPos.y + row < 0 || curPos.y + row >= static_cast<long long>(h) || curPos.x + col < 0 ||
+                            curPos.x + col >= static_cast<long long>(w)) {
+                            continue;
+                        }
+                        curPos.y += row;
+                        curPos.x += col;
+                        self();
+                        curPos.y -= row;
+                        curPos.x -= col;
                     }
-                    curPos.y += row;
-                    curPos.x += col;
-                    self();
-                    curPos.y -= row;
-                    curPos.x -= col;
+
+                    return true;
                 }
-                return true;
             };
 
-            for (size_t r = 0; r < h; ++r) {
-                for (size_t c = 0; c < w; ++c) {
-                    curPos.y       = static_cast<long long>(r);
-                    curPos.x       = static_cast<long long>(c);
-                    res.gapsCount += gapLaunch();
-
-                    curPos.y         = static_cast<long long>(r);
-                    curPos.x         = static_cast<long long>(c);
+            for (curPos.y = 0ll; curPos.y < h; ++curPos.y) {
+                for (curPos.x = 0ll; curPos.x < w; ++curPos.x) {
+                    if (mv_other[curPos.y, curPos.x] != 0) {
+                        for (auto const &[row, col] : explorers::directions::get_dirChanges_2D()) {
+                            curPos.y      += row;
+                            curPos.x      += col;
+                            res.gapsCount += gapsRecLambda();
+                            curPos.y      -= row;
+                            curPos.x      -= col;
+                        }
+                    }
                     res.shapesCount += filledRecLambda();
                 }
             }
