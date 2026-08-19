@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <execution>
 #include <functional>
 #include <limits>
 #include <optional>
@@ -14,7 +15,6 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
-#include <execution>
 
 #include <ankerl/unordered_dense.h>
 #include <more_concepts/more_concepts.hpp>
@@ -1347,6 +1347,33 @@ private:
                 std::optional<PastRes> accepted{};
             };
 
+            auto for_each = []<std::random_access_iterator It, class Fn>(It first, It last, Fn &&fn) -> void {
+#if BOXPACKER_USE_STD_PAR
+                std::for_each(std::execution::par_unseq, first, last, std::forward<Fn>(fn));
+#else
+                using diff_t   = typename std::iterator_traits<It>::difference_type;
+                const diff_t n = last - first;
+                if (n <= 0) { return; }
+
+                unsigned workers = std::thread::hardware_concurrency();
+                if (workers == 0) { workers = 4; }
+
+                std::atomic<diff_t>       next{0};
+                std::vector<std::jthread> pool;
+                pool.reserve(workers);
+
+                for (unsigned w = 0; w < workers; ++w) {
+                    pool.emplace_back([&] {
+                        for (;;) {
+                            const diff_t i = next.fetch_add(1, std::memory_order_relaxed);
+                            if (i >= n) { break; }
+                            fn(*(first + i));
+                        }
+                    });
+                }
+#endif
+            };
+
             std::vector<EvalItem> work;
             work.reserve(m_shapes_alterns_totalCount);
 
@@ -1358,7 +1385,7 @@ private:
 
 
             // Phase 1: parallel compute (each iteration writes only to its own EvalItem)
-            std::for_each(std::execution::par_unseq, work.begin(), work.end(), [&](EvalItem &item) {
+            for_each(work.begin(), work.end(), [&](EvalItem &item) {
                 PastRes rs{.ol_shpID{item.shpID, item.alternID},
                            .ol_res = tile.compute_overlayWith(m_shapes_alterns.at(item.shpID).at(item.alternID))};
                 if (SolverPolicy::allows(rs)) { item.accepted = std::move(rs); }
