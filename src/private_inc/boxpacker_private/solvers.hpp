@@ -14,6 +14,7 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
+#include <execution>
 
 #include <ankerl/unordered_dense.h>
 #include <more_concepts/more_concepts.hpp>
@@ -1354,6 +1355,7 @@ private:
                     work.push_back(EvalItem{.shpID = shpID, .alternID = alternID, .accepted = std::nullopt});
                 }
             }
+
 
             // Phase 1: parallel compute (each iteration writes only to its own EvalItem)
             std::for_each(std::execution::par_unseq, work.begin(), work.end(), [&](EvalItem &item) {

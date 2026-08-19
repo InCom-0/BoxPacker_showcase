@@ -107,6 +107,9 @@ target_sources(boxpacker_showcase
 )
 
 target_compile_features(boxpacker_showcase PRIVATE cxx_std_26)
+if(USING_LIBCXX)
+    target_compile_options(boxpacker_showcase PRIVATE -fexperimental-library)
+endif()
 
 if(EMSCRIPTEN)
     set(boxpacker_showcase_EMSCRIPTEN_SHELL_FILE

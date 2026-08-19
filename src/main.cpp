@@ -196,18 +196,18 @@ int main(int, char **) {
     auto [_, shps, trees] = sampleInputs.front();
 
 
-    for (auto &shp : shps.m_shapes) {
-        std::cout << std::format("{}\n", shp.stringify_self());
+    // for (auto &shp : shps.m_shapes) {
+    //     std::cout << std::format("{}\n", shp.stringify_self());
 
-        // shp.resize_safe(9, 1);
+    //     // shp.resize_safe(9, 1);
 
-        // for (size_t lineID = 0; lineID < shp.m_sqsz; ++lineID) {
-        //     auto vvv = std::views::drop(shp.m_matrix, lineID * shp.m_sqsz) | std::views::take(shp.m_sqsz) |
-        //                std::views::transform([&](auto &&chr) { return map[chr]; });
-        //     std::cout << std::format("{:s}\n", vvv);
-        // }
-        int a = 0;
-    }
+    //     // for (size_t lineID = 0; lineID < shp.m_sqsz; ++lineID) {
+    //     //     auto vvv = std::views::drop(shp.m_matrix, lineID * shp.m_sqsz) | std::views::take(shp.m_sqsz) |
+    //     //                std::views::transform([&](auto &&chr) { return map[chr]; });
+    //     //     std::cout << std::format("{:s}\n", vvv);
+    //     // }
+    //     int a = 0;
+    // }
 
     if (trees.empty()) {
         std::cerr << "Failed to load sample input from: " << df << '\n';
