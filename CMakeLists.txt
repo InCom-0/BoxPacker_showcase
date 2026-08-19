@@ -107,10 +107,9 @@ target_sources(boxpacker_showcase
 )
 
 target_compile_features(boxpacker_showcase PRIVATE cxx_std_26)
+
 if(USING_LIBCXX)
-    target_compile_definitions(boxpacker_showcase PRIVATE BOXPACKER_USE_STD_PAR=0)
-else()
-    target_compile_definitions(boxpacker_showcase PRIVATE BOXPACKER_USE_STD_PAR=1)
+    target_compile_options(boxpacker_showcase PRIVATE -fexperimental-library)
 endif()
 
 if(EMSCRIPTEN)

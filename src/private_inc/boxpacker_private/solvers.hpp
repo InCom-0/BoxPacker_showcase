@@ -301,7 +301,7 @@ public:
             };
 
             auto flood_gap_launcher = [&](int const row, int const col) -> size_t {
-                size_t res;
+                size_t res = 0uz;
                 if (row > 0 && gapMemo[(row - 1) * m_width + col] == 0) { res += flood_gap_component(row - 1, col); }
                 if ((row + 1) < m_height && gapMemo[(row + 1) * m_width + col] == 0) {
                     res += flood_gap_component(row + 1, col);
@@ -1347,47 +1347,19 @@ private:
                 std::optional<PastRes> accepted{};
             };
 
-            auto for_each = []<std::random_access_iterator It, class Fn>(It first, It last, Fn &&fn) -> void {
-#if BOXPACKER_USE_STD_PAR
-                std::for_each(std::execution::par_unseq, first, last, std::forward<Fn>(fn));
-#else
-                using diff_t   = typename std::iterator_traits<It>::difference_type;
-                const diff_t n = last - first;
-                if (n <= 0) { return; }
-
-                unsigned workers = std::thread::hardware_concurrency();
-                if (workers == 0) { workers = 4; }
-
-                std::atomic<diff_t>       next{0};
-                std::vector<std::jthread> pool;
-                pool.reserve(workers);
-
-                for (unsigned w = 0; w < workers; ++w) {
-                    pool.emplace_back([&] {
-                        for (;;) {
-                            const diff_t i = next.fetch_add(1, std::memory_order_relaxed);
-                            if (i >= n) { break; }
-                            fn(*(first + i));
-                        }
-                    });
-                }
-#endif
-            };
-
             std::vector<EvalItem> work;
             work.reserve(m_shapes_alterns_totalCount);
 
             for (size_t shpID = 0; shpID < m_shapes_alterns.size(); ++shpID) {
                 for (size_t alternID = 0; alternID < m_shapes_alterns[shpID].size(); ++alternID) {
-                    work.push_back(EvalItem{.shpID = shpID, .alternID = alternID, .accepted = std::nullopt});
+                    work.emplace_back(shpID, alternID, std::nullopt);
                 }
             }
 
-
             // Phase 1: parallel compute (each iteration writes only to its own EvalItem)
-            for_each(work.begin(), work.end(), [&](EvalItem &item) {
+            std::for_each(std::execution::par_unseq, work.begin(), work.end(), [&](EvalItem &item) {
                 PastRes rs{.ol_shpID{item.shpID, item.alternID},
-                           .ol_res = tile.compute_overlayWith(m_shapes_alterns.at(item.shpID).at(item.alternID))};
+                           .ol_res = tile.compute_overlayWith(m_shapes_alterns[item.shpID][item.alternID])};
                 if (SolverPolicy::allows(rs)) { item.accepted = std::move(rs); }
             });
 
