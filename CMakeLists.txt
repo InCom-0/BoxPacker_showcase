@@ -122,6 +122,9 @@ if(EMSCRIPTEN)
     set(boxpacker_showcase_EMSCRIPTEN_SAMPLE_INPUT_BIG5
         "${CMAKE_SOURCE_DIR}/data/BoxPacker_sample_BIG5.txt"
     )
+    set(boxpacker_showcase_EMSCRIPTEN_SAMPLE_INPUT_BIG7
+        "${CMAKE_SOURCE_DIR}/data/BoxPacker_sample_BIG7.txt"
+    )
 
     set_target_properties(boxpacker_showcase
         PROPERTIES
@@ -135,6 +138,7 @@ if(EMSCRIPTEN)
             "SHELL:--shell-file ${boxpacker_showcase_EMSCRIPTEN_SHELL_FILE}"
             "SHELL:--preload-file ${boxpacker_showcase_EMSCRIPTEN_SAMPLE_INPUT}@/data/BoxPacker_sample_input.txt"
             "SHELL:--preload-file ${boxpacker_showcase_EMSCRIPTEN_SAMPLE_INPUT_BIG5}@/data/BoxPacker_sample_BIG5.txt"
+            "SHELL:--preload-file ${boxpacker_showcase_EMSCRIPTEN_SAMPLE_INPUT_BIG7}@/data/BoxPacker_sample_BIG7.txt"
             "-sALLOW_MEMORY_GROWTH=1"
             "$<$<CONFIG:Debug>:-sASSERTIONS=2>"
     )

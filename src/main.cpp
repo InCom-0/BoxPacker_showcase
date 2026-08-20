@@ -52,12 +52,14 @@
 
 
 #ifdef __EMSCRIPTEN__
-#define BOXPACKER_SAMPLE_INPUT   "/data/BoxPacker_sample_input.txt"
-#define BOXPACKER_SAMPLE_INPUT_5 "/data/BoxPacker_sample_BIG5.txt"
+#define BOXPACKER_SAMPLE_BD_PREFIX ""
 #else
-#define BOXPACKER_SAMPLE_INPUT   "../../../data/BoxPacker_sample_input.txt"
-#define BOXPACKER_SAMPLE_INPUT_5 "../../../data/BoxPacker_sample_BIG5.txt"
+#define BOXPACKER_SAMPLE_BD_PREFIX "../../../"
 #endif
+
+#define BOXPACKER_SAMPLE_INPUT   BOXPACKER_SAMPLE_BD_PREFIX "/data/BoxPacker_sample_input.txt"
+#define BOXPACKER_SAMPLE_INPUT_5 BOXPACKER_SAMPLE_BD_PREFIX "/data/BoxPacker_sample_BIG5.txt"
+#define BOXPACKER_SAMPLE_INPUT_7 BOXPACKER_SAMPLE_BD_PREFIX "/data/BoxPacker_sample_BIG7.txt"
 
 struct UploadedFile {
     std::string filename;
@@ -189,9 +191,11 @@ int main(int, char **) {
     using namespace std::chrono_literals;
     std::string df{BOXPACKER_SAMPLE_INPUT};
     std::string df_5{BOXPACKER_SAMPLE_INPUT_5};
+    std::string df_7{BOXPACKER_SAMPLE_INPUT_7};
 
     std::vector<std::tuple<std::string, incom::box_packer::ShapesStorage, std::vector<incom::box_packer::Tree>>>
-        sampleInputs{incom::box_packer::parse_integratedData(df), incom::box_packer::parse_integratedData(df_5)};
+        sampleInputs{incom::box_packer::parse_integratedData(df), incom::box_packer::parse_integratedData(df_5),
+                     incom::box_packer::parse_integratedData(df_7)};
 
     auto [_, shps, trees] = sampleInputs.front();
 

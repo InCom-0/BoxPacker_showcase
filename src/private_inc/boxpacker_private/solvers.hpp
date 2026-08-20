@@ -1384,9 +1384,12 @@ private:
     std::optional<consideredOptionsByShape_t> findNextStep_covering() {
         if (m_uncoverableFrontierPoss.empty()) { return std::nullopt; }
 
-        std::vector<unsigned char>                                       tracker(m_frontier_ySz * m_frontier_xSz, 0);
-        polyfills::mdspan<unsigned char, polyfills::dextents<size_t, 2>> mdsp(tracker.data(), m_frontier_ySz,
-                                                                              m_frontier_xSz);
+        std::vector<unsigned char>                                       trackerUncov(m_area_ySize * m_area_xSize, 0);
+        polyfills::mdspan<unsigned char, polyfills::dextents<size_t, 2>> trackerUncov_view(trackerUncov.data(),
+                                                                                           m_area_ySize, m_area_xSize);
+        std::vector<unsigned char>                                       tracker(m_area_ySize * m_area_xSize, 0);
+        polyfills::mdspan<unsigned char, polyfills::dextents<size_t, 2>> tracker_view(tracker.data(), m_area_ySize,
+                                                                                      m_area_xSize);
 
         auto const perShpScoringAdj = compute_perShapeScoringAdjustments();
 
@@ -1396,10 +1399,7 @@ private:
 
         while (! m_uncoverableFrontierPoss.empty()) {
             Pos const seed = m_uncoverableFrontierPoss.front();
-
-            if (seed.y < 0 || seed.x < 0 || seed.y >= static_cast<long long>(m_area_ySize) ||
-                seed.x >= static_cast<long long>(m_area_xSize) ||
-                areaView[static_cast<size_t>(seed.y), static_cast<size_t>(seed.x)] != 0) {
+            if (areaView[static_cast<size_t>(seed.y), static_cast<size_t>(seed.x)] != 0) {
                 m_uncoverableFrontierPoss.pop_front();
                 continue;
             }
@@ -1420,18 +1420,22 @@ private:
                             prPos.x >= static_cast<long long>(m_frontier_xSz)) {
                             continue;
                         }
-
+                        // if (trackerUncov_view[onePos.y, onePos.x] == 1) {}
                         size_t const py = static_cast<size_t>(prPos.y);
                         size_t const px = static_cast<size_t>(prPos.x);
 
-                        if (mdsp[py, px] != 0) { continue; }
-                        mdsp[py, px] = 1;
+                        if (tracker_view[py, px] != 0) { continue; }
+                        tracker_view[py, px] = 1;
 
                         if (! frontierView[py, px].has_value()) { continue; }
 
                         collect_consideredOptionsAt(
                             toConsider, anyFilled, selectionState, prPos, frontierView[py, px].value().get(),
-                            perShpScoringAdj, OptionAtPos::Type::Gapcreating, [](auto const &item) { return true; });
+                            perShpScoringAdj, OptionAtPos::Type::Gapcreating, [&](auto const &item) {
+                                return item.ol_res.ol_shp.m_matrix[(onePos.y - prPos.y) * item.ol_res.ol_shp.m_width +
+                                                                   (onePos.x - prPos.x)] != 0;
+                                ;
+                            });
                     }
                 }
 
@@ -1443,8 +1447,9 @@ private:
             std::vector<Pos> posToEval;
 
             while (! explr.is_atEnd()) {
-                auto locPos = explr.get_next();
-                posToEval.push_back({static_cast<long long>(locPos[0]), static_cast<long long>(locPos[1])});
+                auto const [yLoc, xLoc]       = explr.get_next();
+                trackerUncov_view[yLoc, xLoc] = 1;
+                posToEval.push_back({static_cast<long long>(std::move(yLoc)), static_cast<long long>(std::move(xLoc))});
 
                 if (level < explr.m_queueIDToUseNext) {
                     if (auto potRes = eva(posToEval); potRes.has_value()) { return potRes; }
@@ -1455,8 +1460,10 @@ private:
             }
             if (auto potRes = eva(posToEval); potRes.has_value()) { return potRes; }
 
-            m_uncoverableFrontierPoss.pop_front();
+            std::erase_if(m_uncoverableFrontierPoss,
+                          [&](auto const &item) { return (trackerUncov_view[item.y, item.x] == 1); });
         }
+
 
         return std::nullopt;
     }
