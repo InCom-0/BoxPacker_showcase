@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <client/TracyScoped.hpp>
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
@@ -25,6 +26,10 @@
 #include <incstd/core/random.hpp>
 
 #include <incstd/polyfills/mdspan.hpp>
+
+#ifdef TRACY_ENABLE
+#include <tracy/Tracy.hpp>
+#endif
 
 namespace incom::standard::solvers_TEMP {
 using namespace incom::standard;
@@ -218,6 +223,8 @@ public:
         }
 
         constexpr Overlay _compute_overlayWith_impl(Shape const &other) const {
+            ZoneScopedN("overlayWith_impl");
+
             Overlay res{.ol_shp{Shape::make(m_height, m_width)}};
 
             if (m_height == 0uz or m_width == 0uz) { return res; } // Early exit
@@ -225,43 +232,50 @@ public:
             auto const mv       = get_mdspanOfSelf();
             auto const mv_other = other.get_mdspanOfSelf();
 
-            for (size_t r = 0; r < (m_height * m_width); r += m_width) {
-                for (size_t c = 0; c < m_width; ++c) {
-                    res.pointsOverlaid         += (m_matrix[r + c] != 0) && (other.m_matrix[r + c] != 0);
-                    res.pointsAdded            += (m_matrix[r + c] == 0) && (other.m_matrix[r + c] != 0);
-                    res.ol_shp.m_matrix[r + c]  = (m_matrix[r + c] != 0 || other.m_matrix[r + c] != 0);
+            {
+                ZoneScopedN("overlayWith_impl_pointCounting");
+                for (size_t r = 0; r < (m_height * m_width); r += m_width) {
+
+                    for (size_t c = 0; c < m_width; ++c) {
+                        res.pointsOverlaid         += (m_matrix[r + c] != 0) && (other.m_matrix[r + c] != 0);
+                        res.pointsAdded            += (m_matrix[r + c] == 0) && (other.m_matrix[r + c] != 0);
+                        res.ol_shp.m_matrix[r + c]  = (m_matrix[r + c] != 0 || other.m_matrix[r + c] != 0);
+                    }
                 }
             }
 
             Shape touch    = Shape::make(m_height, m_width);
             Shape notTouch = Shape::make(m_height, m_width);
 
-            for (size_t r = 1; r < m_height - 1; ++r) {
-                for (size_t c = 1; c < m_width - 1; ++c) {
-                    if (mv_other[r, c] == 0) { continue; }
+            {
+                ZoneScopedN("overlayWith_touchCounting");
+                for (size_t r = 1; r < m_height - 1; ++r) {
 
-                    res.bordersTouching += (mv[r - 1, c] != 0) && (mv_other[r - 1, c] == 0);
-                    res.bordersTouching += (mv[r, c - 1] != 0) && (mv_other[r, c - 1] == 0);
-                    res.bordersTouching += (mv[r, c + 1] != 0) && (mv_other[r, c + 1] == 0);
-                    res.bordersTouching += (mv[r + 1, c] != 0) && (mv_other[r + 1, c] == 0);
+                    for (size_t c = 1; c < m_width - 1; ++c) {
+                        if (mv_other[r, c] == 0) { continue; }
 
-                    touch.m_matrix[(r - 1) * m_width + c] |= (mv[r - 1, c] != 0) && (mv_other[r - 1, c] == 0);
-                    touch.m_matrix[r * m_width + c - 1]   |= (mv[r, c - 1] != 0) && (mv_other[r, c - 1] == 0);
-                    touch.m_matrix[r * m_width + c + 1]   |= (mv[r, c + 1] != 0) && (mv_other[r, c + 1] == 0);
-                    touch.m_matrix[(r + 1) * m_width + c] |= (mv[r + 1, c] != 0) && (mv_other[r + 1, c] == 0);
+                        res.bordersTouching += (mv[r - 1, c] != 0) && (mv_other[r - 1, c] == 0);
+                        res.bordersTouching += (mv[r, c - 1] != 0) && (mv_other[r, c - 1] == 0);
+                        res.bordersTouching += (mv[r, c + 1] != 0) && (mv_other[r, c + 1] == 0);
+                        res.bordersTouching += (mv[r + 1, c] != 0) && (mv_other[r + 1, c] == 0);
 
-                    res.bordersNotTouching += (mv[r - 1, c] == 0) && (mv_other[r - 1, c] == 0);
-                    res.bordersNotTouching += (mv[r, c - 1] == 0) && (mv_other[r, c - 1] == 0);
-                    res.bordersNotTouching += (mv[r, c + 1] == 0) && (mv_other[r, c + 1] == 0);
-                    res.bordersNotTouching += (mv[r + 1, c] == 0) && (mv_other[r + 1, c] == 0);
+                        touch.m_matrix[(r - 1) * m_width + c] |= (mv[r - 1, c] != 0) && (mv_other[r - 1, c] == 0);
+                        touch.m_matrix[r * m_width + c - 1]   |= (mv[r, c - 1] != 0) && (mv_other[r, c - 1] == 0);
+                        touch.m_matrix[r * m_width + c + 1]   |= (mv[r, c + 1] != 0) && (mv_other[r, c + 1] == 0);
+                        touch.m_matrix[(r + 1) * m_width + c] |= (mv[r + 1, c] != 0) && (mv_other[r + 1, c] == 0);
 
-                    notTouch.m_matrix[(r - 1) * m_width + c] |= (mv[r - 1, c] == 0) && (mv_other[r - 1, c] == 0);
-                    notTouch.m_matrix[r * m_width + c - 1]   |= (mv[r, c - 1] == 0) && (mv_other[r, c - 1] == 0);
-                    notTouch.m_matrix[r * m_width + c + 1]   |= (mv[r, c + 1] == 0) && (mv_other[r, c + 1] == 0);
-                    notTouch.m_matrix[(r + 1) * m_width + c] |= (mv[r + 1, c] == 0) && (mv_other[r + 1, c] == 0);
+                        res.bordersNotTouching += (mv[r - 1, c] == 0) && (mv_other[r - 1, c] == 0);
+                        res.bordersNotTouching += (mv[r, c - 1] == 0) && (mv_other[r, c - 1] == 0);
+                        res.bordersNotTouching += (mv[r, c + 1] == 0) && (mv_other[r, c + 1] == 0);
+                        res.bordersNotTouching += (mv[r + 1, c] == 0) && (mv_other[r + 1, c] == 0);
+
+                        notTouch.m_matrix[(r - 1) * m_width + c] |= (mv[r - 1, c] == 0) && (mv_other[r - 1, c] == 0);
+                        notTouch.m_matrix[r * m_width + c - 1]   |= (mv[r, c - 1] == 0) && (mv_other[r, c - 1] == 0);
+                        notTouch.m_matrix[r * m_width + c + 1]   |= (mv[r, c + 1] == 0) && (mv_other[r, c + 1] == 0);
+                        notTouch.m_matrix[(r + 1) * m_width + c] |= (mv[r + 1, c] == 0) && (mv_other[r + 1, c] == 0);
+                    }
                 }
             }
-
             Shape gapPastMemo    = res.ol_shp;
             Shape filledPastMemo = res.ol_shp;
 
@@ -272,6 +286,7 @@ public:
             stack.reserve(m_height * m_width);
 
             auto flood_gap_component = [&](int const row, int const col) -> bool {
+                ZoneScopedN("overlayWith_flood_gap_component");
                 stack.clear();
                 stack.emplace_back(row, col);
                 gapMemo[row * m_width + col] = 1;
@@ -301,6 +316,7 @@ public:
             };
 
             auto flood_gap_launcher = [&](int const row, int const col) -> size_t {
+                ZoneScopedN("overlayWith_flood_gap_launcher");
                 size_t res = 0uz;
                 if (row > 0 && gapMemo[(row - 1) * m_width + col] == 0) { res += flood_gap_component(row - 1, col); }
                 if ((row + 1) < m_height && gapMemo[(row + 1) * m_width + col] == 0) {
@@ -314,6 +330,7 @@ public:
             };
 
             auto flood_filled_component = [&](int const row, int const col) -> bool {
+                ZoneScopedN("overlayWith_flood_filled_component");
                 stack.clear();
                 stack.emplace_back(row, col);
                 filledMemo[(row * m_width) + col] = 0;
