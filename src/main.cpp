@@ -346,6 +346,11 @@ int main(int, char **) {
                                "lightning speed using a heuristic process resembling how a human might approach this.");
             ImGui::Dummy(ImGui::GetItemRectSize());
 
+            // UI metrics derived from current style/font (DPI-aware across platforms, including Emscripten).
+            auto const uiBaseCellPx  = std::max(1.0f, ImGui::GetFrameHeight());
+            auto const uiGridCellPx  = std::round(uiBaseCellPx * 1.00f);
+            auto const uiGridCellPxI = static_cast<int>(uiGridCellPx);
+
             struct AnimControl {
                 std::chrono::nanoseconds m_oneIterDuration = std::chrono::nanoseconds::max();
                 std::chrono::nanoseconds m_elapsedDuration = std::chrono::nanoseconds::zero();
@@ -580,7 +585,7 @@ int main(int, char **) {
 
                             // Shape creator header (count of shapes DragInt)
                             int curVal = oneTree.reqdShapes.at(curShpIDX);
-                            ImGui::PushItemWidth(std::max(shp_width, 1uz) * 27);
+                            ImGui::PushItemWidth(std::max(shp_width, 1uz) * (uiGridCellPx + 1.0f));
                             ImGui::PushID(r * 3 + c);
                             ImGui::DragInt("", &curVal, 0.1f, 0, 100, "%d");
                             oneTree.set_reqdShape(curShpIDX, curVal);
@@ -598,13 +603,13 @@ int main(int, char **) {
 
 
                                 for (int c = 0; c < shp_width; ++c) {
-                                    ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 26.0f);
+                                    ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, uiGridCellPx);
                                 };
 
 
                                 auto spn = shps.m_shapes.at(curShpIDX).get_mdspanOfSelf();
                                 for (int tRow = 0; tRow < shps.m_shapes.at(curShpIDX).m_height; tRow++) {
-                                    ImGui::TableNextRow(ImGuiTableRowFlags_None, 26);
+                                    ImGui::TableNextRow(ImGuiTableRowFlags_None, uiGridCellPx);
                                     for (int tCol = 0; tCol < shp_width; tCol++) {
 
                                         ImGui::PushID(tRow * shp_width + tCol);
@@ -646,14 +651,14 @@ int main(int, char **) {
                     }
                     ImGui::Dummy(ImVec2{0, ImGui::GetItemRectSize().y / 8});
                     if (ImGui::Button("Counts, sizes -> plan",
-                                      ImVec2(9 * 26 + ImGui::GetStyle().FramePadding.x * 6, 0))) {
+                                      ImVec2(9 * uiGridCellPx + ImGui::GetStyle().FramePadding.x * 6, 0))) {
                         planTrees.push_back(oneTree);
                     }
                 }
                 ImGui::EndGroup();
 
                 ImGui::SameLine();
-                ImGui::Dummy({26, 0});
+                ImGui::Dummy({uiGridCellPx, 0});
                 ImGui::SameLine();
 
                 ImGui::BeginGroup();
@@ -853,7 +858,8 @@ int main(int, char **) {
                         }
 
                         // Rewind slider
-                        static float cellSize = 16.0f;
+                        static float cellSize = 0.0f;
+                        if (cellSize <= 0.0f) { cellSize = std::max(1.0f, ImGui::GetFrameHeight() * 0.7f); }
                         ImGui::PushItemWidth(
                             std::get<1>(jobs.at(sel_jobID.value())).m_trees.at(sel_resID.value()).xDim *
                             (cellSize + 1.0));
@@ -991,12 +997,12 @@ int main(int, char **) {
 
 
                                 for (int c = 0; c < shp_width; ++c) {
-                                    ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 26.0f);
+                                    ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, uiGridCellPx);
                                 };
 
                                 auto const shpView = selJobSolvRes.m_shpsAlterns.at(r).at(0).get_mdspanOfSelf();
                                 for (int tRow = 0; tRow < shp_height; tRow++) {
-                                    ImGui::TableNextRow(ImGuiTableRowFlags_None, 26);
+                                    ImGui::TableNextRow(ImGuiTableRowFlags_None, uiGridCellPxI);
                                     for (int tCol = 0; tCol < shp_width; tCol++) {
 
                                         ImGui::PushID(tRow * shp_width + tCol);

@@ -68,9 +68,9 @@ set(IMGUI_ENABLE_STDLIB_SUPPORT TRUE)
 # FreeType (https://github.com/cpm-cmake/CPM.cmake/wiki/More-Snippets#freetype)
 
 set(IMGUI_ENABLE_FREETYPE FALSE)
-set(FREETYPE_FOUND TRUE)
-set(FREETYPE_INCLUDE_DIRS "")
-set(FREETYPE_LIBRARIES Freetype::Freetype)
+# set(FREETYPE_FOUND TRUE)
+# set(FREETYPE_INCLUDE_DIRS "")
+# set(FREETYPE_LIBRARIES Freetype::Freetype)
 
 # Add subdirectory
 set(IMGUI_IMPL_GLFW OFF)
