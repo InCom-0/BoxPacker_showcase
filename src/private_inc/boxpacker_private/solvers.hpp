@@ -344,7 +344,7 @@ public:
                         filledMemo[idx - m_width] = 0;
                         stack.emplace_back(r - 1, c);
                     }
-                    if (r < (m_height - 1) && (filledMemo[idx + m_width] != 0)) {
+                    if ((r + 1) < m_height && (filledMemo[idx + m_width] != 0)) {
                         filledMemo[idx + m_width] = 0;
                         stack.emplace_back(r + 1, c);
                     }
@@ -504,6 +504,12 @@ public:
                 }
             }
             return count;
+        }
+        constexpr bool has_overlapWith(Shape const &other) const {
+            for (size_t i = 0; i < m_matrix.size(); ++i) {
+                if (m_matrix[i] != 0 && other.m_matrix[i] != 0) { return true; }
+            }
+            return false;
         }
 
         constexpr Overlay compute_overlayWith(Shape const &other) const {
@@ -1375,9 +1381,11 @@ private:
 
             // Phase 1: parallel compute (each iteration writes only to its own EvalItem)
             std::for_each(std::execution::par_unseq, work.begin(), work.end(), [&](EvalItem &item) {
-                PastRes rs{.ol_shpID{item.shpID, item.alternID},
-                           .ol_res = tile.compute_overlayWith(m_shapes_alterns[item.shpID][item.alternID])};
-                if (SolverPolicy::allows(rs)) { item.accepted = std::move(rs); }
+                if (not tile.has_overlapWith(m_shapes_alterns[item.shpID][item.alternID])) {
+                    item.accepted =
+                        PastRes{.ol_shpID{item.shpID, item.alternID},
+                                .ol_res = tile.compute_overlayWith(m_shapes_alterns[item.shpID][item.alternID])};
+                }
             });
 
             // Phase 2: sequential merge into shared container
