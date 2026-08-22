@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cassert>
-#include <client/TracyScoped.hpp>
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
@@ -27,9 +26,7 @@
 
 #include <incstd/polyfills/mdspan.hpp>
 
-#ifdef TRACY_ENABLE
 #include <tracy/Tracy.hpp>
-#endif
 
 namespace incom::standard::solvers_TEMP {
 using namespace incom::standard;
