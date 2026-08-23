@@ -1,13 +1,15 @@
 
 <div align="center">
-This repository include an <a href="https://incom-0.github.io/BoxPacker_showcase/">Interactive example</a> of BoxPacker_2D algo. <br>
-It shows an algorithm/solver for a particular kind of <a href="https://en.wikipedia.org/wiki/Packing_problems">packing problems</a> speficially <a href="https://en.wikipedia.org/wiki/Polyomino">polyomino</a> packing.<br><br>
+This repository includes <a href="https://incom-0.github.io/BoxPacker_showcase/">interactive example</a> of BoxPacker_2D algo. <br>
+It shows an algorithm/solver for a particular kind of <a href="https://en.wikipedia.org/wiki/Packing_problems">packing problems</a>, speficially <a href="https://en.wikipedia.org/wiki/Polyomino">polyomino</a> packing.<br><br>
 Note: The polyomino packing problem is NP-hard and this algorithm does not stricly speaking 'solve' it.<br>
 What it does do is it uses a heuristic process to compute 'some pretty good solution' extremely fast and its runtime complexity scales linearly with the problem size.<br>
-The algorithm itself is part of the <a href="github.com/InCom-0/incstd">incstd</a> library.<br><br><br>
+The solver itself is part of the <a href="github.com/InCom-0/incstd">incstd</a> library.<br><br><br>
 
 This was inspired by <a href="https://adventofcode.com/2025/day/12">Advent of Code 2025 Day 12</a> Advent of Code 2025 Day 12.<br>
 Note: It does not directly provide answers to the puzzle itself.<br>
+Note: The animation below shows slowed down recording of how the solver progresses.<br>
+Note: Typical runtime on modern hardware for a problem like the one below is measured in miliseconds.<br>
 
 <img width="600" alt="Result animation example" src="https://raw.githubusercontent.com/InCom-0/BoxPacker_showcase/106b2819bf2d0ef9c50335e4176af59ed67d3711/images/SolverAnim.gif" />
 </div>
