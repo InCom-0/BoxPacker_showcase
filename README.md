@@ -11,7 +11,7 @@ Note: It does not directly provide answers to the puzzle itself.<br>
 Note: The animation below shows slowed down recording of how the solver progresses.<br>
 Note: Typical runtime on modern hardware for a problem like the one below is measured in miliseconds.<br>
 
-<img width="600" alt="Result animation example" src="https://raw.githubusercontent.com/InCom-0/BoxPacker_showcase/106b2819bf2d0ef9c50335e4176af59ed67d3711/images/SolverAnim.gif" />
+<img width="600" alt="Result animation example" src="https://raw.githubusercontent.com/InCom-0/BoxPacker_showcase/bca9126c81f990d537094ca2370b627f5c5762c1/images/SolverAnim.avif" />
 </div>
 
 
